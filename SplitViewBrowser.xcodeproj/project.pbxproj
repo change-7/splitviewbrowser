@@ -1,0 +1,482 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		16396CD96DF585EB9A94D7E3 /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66028AAB645A6F1E719CEEDB /* AppStateTests.swift */; };
+		3425D98B58570407F5FEBC6F /* AutoCopySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */; };
+		4DB0D28AD8EA7F31F480E96F /* WindowMinimumSizeAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */; };
+		53F4352B3C16F56DB91644B1 /* QuickComposeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FFA0155A76962CFF586288 /* QuickComposeViews.swift */; };
+		71828A17C07954BEAB1352B3 /* WebViewStore+Scripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED9F6245A614C061D261539 /* WebViewStore+Scripts.swift */; };
+		7AD6BE47C7B513F50D7D170E /* WebViewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93C34ADCBBE091505698D633 /* WebViewStore.swift */; };
+		852963F5E6FBF59450C8F79C /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19706D2BA865D3779CBDEFA8 /* AppLogger.swift */; };
+		950FB8CA1D86BC7909267838 /* PromptRepositoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */; };
+		9E0A0C49E3EA88BD87E6CEDD /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C8C9AE4C3C9840DF7A2F05 /* AppState.swift */; };
+		A998F24FE462158AF974408D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 909507865D1DF59B36DCD7DD /* Assets.xcassets */; };
+		B0F9932CF88E2A0583842287 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BFDC1A3A6754EF4CD7E82F0 /* SettingsView.swift */; };
+		B2F1A577D7CDF32AA5C721A5 /* WebViewContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4639BD2F3E53D3085D0EBD8 /* WebViewContainer.swift */; };
+		BDF2D5BF0746E9BFA7D37E79 /* WebPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9A16A4A3DA6BF883F1FE0A8 /* WebPanelView.swift */; };
+		CD0ECB8B0447E4F1A83A3BBA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2255F149E9362E4EB507AEF /* ContentView.swift */; };
+		DF5E310384282C9FBF77CBB3 /* AIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFAF28B06876377F810F2AD /* AIService.swift */; };
+		EFE8154F4B0D51945DD9D04F /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = D648A77DE0EE8CFC22569E04 /* Localizable.strings */; };
+		F44C12AC9E17A954A89239F4 /* SplitViewBrowserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAEE5CB48157C6C1A0147BAB /* SplitViewBrowserApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		737E85CE483F58F1E185FB73 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2FB84E94D55193C71490BB26 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8D84040E24697704919C14A;
+			remoteInfo = SplitViewBrowser;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		19706D2BA865D3779CBDEFA8 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+		1AFAA9CC4A8915FE7C3F20E8 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
+		259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMinimumSizeAccessor.swift; sourceTree = "<group>"; };
+		28FFA0155A76962CFF586288 /* QuickComposeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickComposeViews.swift; sourceTree = "<group>"; };
+		4DC7E0CFA8616D1ED8CF9C17 /* SplitViewBrowserTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SplitViewBrowserTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5BFDC1A3A6754EF4CD7E82F0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		66028AAB645A6F1E719CEEDB /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
+		6ED9F6245A614C061D261539 /* WebViewStore+Scripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WebViewStore+Scripts.swift"; sourceTree = "<group>"; };
+		70C8C9AE4C3C9840DF7A2F05 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		8AFAF28B06876377F810F2AD /* AIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIService.swift; sourceTree = "<group>"; };
+		909507865D1DF59B36DCD7DD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		93C34ADCBBE091505698D633 /* WebViewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewStore.swift; sourceTree = "<group>"; };
+		9BD586502D99727960D93A95 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoCopySupport.swift; sourceTree = "<group>"; };
+		B9A16A4A3DA6BF883F1FE0A8 /* WebPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPanelView.swift; sourceTree = "<group>"; };
+		BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptRepositoryView.swift; sourceTree = "<group>"; };
+		C4639BD2F3E53D3085D0EBD8 /* WebViewContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewContainer.swift; sourceTree = "<group>"; };
+		C5E899E351D0E9D11646B04D /* SplitViewBrowser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SplitViewBrowser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2255F149E9362E4EB507AEF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		FAEE5CB48157C6C1A0147BAB /* SplitViewBrowserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitViewBrowserApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		01CC499619A7887F3B267184 = {
+			isa = PBXGroup;
+			children = (
+				702703F8F544F0F184093510 /* SplitViewBrowser */,
+				5FAEB9D7FC75725335D5497D /* SplitViewBrowserTests */,
+				E00DEEF237B593C17D9E7B9D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5FAEB9D7FC75725335D5497D /* SplitViewBrowserTests */ = {
+			isa = PBXGroup;
+			children = (
+				66028AAB645A6F1E719CEEDB /* AppStateTests.swift */,
+			);
+			path = SplitViewBrowserTests;
+			sourceTree = "<group>";
+		};
+		702703F8F544F0F184093510 /* SplitViewBrowser */ = {
+			isa = PBXGroup;
+			children = (
+				8AFAF28B06876377F810F2AD /* AIService.swift */,
+				19706D2BA865D3779CBDEFA8 /* AppLogger.swift */,
+				70C8C9AE4C3C9840DF7A2F05 /* AppState.swift */,
+				909507865D1DF59B36DCD7DD /* Assets.xcassets */,
+				9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */,
+				D2255F149E9362E4EB507AEF /* ContentView.swift */,
+				BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */,
+				28FFA0155A76962CFF586288 /* QuickComposeViews.swift */,
+				5BFDC1A3A6754EF4CD7E82F0 /* SettingsView.swift */,
+				FAEE5CB48157C6C1A0147BAB /* SplitViewBrowserApp.swift */,
+				B9A16A4A3DA6BF883F1FE0A8 /* WebPanelView.swift */,
+				C4639BD2F3E53D3085D0EBD8 /* WebViewContainer.swift */,
+				93C34ADCBBE091505698D633 /* WebViewStore.swift */,
+				6ED9F6245A614C061D261539 /* WebViewStore+Scripts.swift */,
+				259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */,
+				722784A5A1B43FB30FA47145 /* Resources */,
+			);
+			path = SplitViewBrowser;
+			sourceTree = "<group>";
+		};
+		722784A5A1B43FB30FA47145 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D648A77DE0EE8CFC22569E04 /* Localizable.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		E00DEEF237B593C17D9E7B9D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C5E899E351D0E9D11646B04D /* SplitViewBrowser.app */,
+				4DC7E0CFA8616D1ED8CF9C17 /* SplitViewBrowserTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D8D84040E24697704919C14A /* SplitViewBrowser */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 92C8E02F64DD9A0AA79A2078 /* Build configuration list for PBXNativeTarget "SplitViewBrowser" */;
+			buildPhases = (
+				292845B4CF7E5AC14BDC320A /* Sources */,
+				F9466009BBA0818A2AC1162C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SplitViewBrowser;
+			packageProductDependencies = (
+			);
+			productName = SplitViewBrowser;
+			productReference = C5E899E351D0E9D11646B04D /* SplitViewBrowser.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F488F4F9FE6681F6E72A690C /* SplitViewBrowserTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BF8D70471CE137B96B4E5625 /* Build configuration list for PBXNativeTarget "SplitViewBrowserTests" */;
+			buildPhases = (
+				2D18054A50A507553C8646D1 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E7990A226941A3BA41E9A02C /* PBXTargetDependency */,
+			);
+			name = SplitViewBrowserTests;
+			packageProductDependencies = (
+			);
+			productName = SplitViewBrowserTests;
+			productReference = 4DC7E0CFA8616D1ED8CF9C17 /* SplitViewBrowserTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2FB84E94D55193C71490BB26 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					D8D84040E24697704919C14A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 207C57C47A5C41047BD342D3 /* Build configuration list for PBXProject "SplitViewBrowser" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ko,
+			);
+			mainGroup = 01CC499619A7887F3B267184;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D8D84040E24697704919C14A /* SplitViewBrowser */,
+				F488F4F9FE6681F6E72A690C /* SplitViewBrowserTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F9466009BBA0818A2AC1162C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A998F24FE462158AF974408D /* Assets.xcassets in Resources */,
+				EFE8154F4B0D51945DD9D04F /* Localizable.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		292845B4CF7E5AC14BDC320A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DF5E310384282C9FBF77CBB3 /* AIService.swift in Sources */,
+				852963F5E6FBF59450C8F79C /* AppLogger.swift in Sources */,
+				9E0A0C49E3EA88BD87E6CEDD /* AppState.swift in Sources */,
+				3425D98B58570407F5FEBC6F /* AutoCopySupport.swift in Sources */,
+				CD0ECB8B0447E4F1A83A3BBA /* ContentView.swift in Sources */,
+				950FB8CA1D86BC7909267838 /* PromptRepositoryView.swift in Sources */,
+				53F4352B3C16F56DB91644B1 /* QuickComposeViews.swift in Sources */,
+				B0F9932CF88E2A0583842287 /* SettingsView.swift in Sources */,
+				F44C12AC9E17A954A89239F4 /* SplitViewBrowserApp.swift in Sources */,
+				BDF2D5BF0746E9BFA7D37E79 /* WebPanelView.swift in Sources */,
+				B2F1A577D7CDF32AA5C721A5 /* WebViewContainer.swift in Sources */,
+				71828A17C07954BEAB1352B3 /* WebViewStore+Scripts.swift in Sources */,
+				7AD6BE47C7B513F50D7D170E /* WebViewStore.swift in Sources */,
+				4DB0D28AD8EA7F31F480E96F /* WindowMinimumSizeAccessor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2D18054A50A507553C8646D1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				16396CD96DF585EB9A94D7E3 /* AppStateTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E7990A226941A3BA41E9A02C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D8D84040E24697704919C14A /* SplitViewBrowser */;
+			targetProxy = 737E85CE483F58F1E185FB73 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		D648A77DE0EE8CFC22569E04 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				9BD586502D99727960D93A95 /* en */,
+				1AFAA9CC4A8915FE7C3F20E8 /* ko */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		0038A2AD1D24A8479332C5A9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pdg.SplitViewBrowser;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		0C43082838320B5ADB96A707 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pdg.SplitViewBrowser;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		12810447C7F0461449146C13 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SplitViewBrowser.app/Contents/MacOS/SplitViewBrowser";
+			};
+			name = Debug;
+		};
+		5EF73F4083FB9DBB6A6D7598 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A2D7F15A69AEA613A5ECE8F0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SplitViewBrowser.app/Contents/MacOS/SplitViewBrowser";
+			};
+			name = Release;
+		};
+		D275C0AA4E4B9A51C117AA9B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		207C57C47A5C41047BD342D3 /* Build configuration list for PBXProject "SplitViewBrowser" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D275C0AA4E4B9A51C117AA9B /* Debug */,
+				5EF73F4083FB9DBB6A6D7598 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		92C8E02F64DD9A0AA79A2078 /* Build configuration list for PBXNativeTarget "SplitViewBrowser" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0038A2AD1D24A8479332C5A9 /* Debug */,
+				0C43082838320B5ADB96A707 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BF8D70471CE137B96B4E5625 /* Build configuration list for PBXNativeTarget "SplitViewBrowserTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				12810447C7F0461449146C13 /* Debug */,
+				A2D7F15A69AEA613A5ECE8F0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 2FB84E94D55193C71490BB26 /* Project object */;
+}

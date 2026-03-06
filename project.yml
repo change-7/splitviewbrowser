@@ -1,0 +1,48 @@
+name: SplitViewBrowser
+options:
+  minimumXcodeGenVersion: 2.38.0
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+targets:
+  SplitViewBrowser:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - SplitViewBrowser
+    resources:
+      - SplitViewBrowser/Assets.xcassets
+      - SplitViewBrowser/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pdg.SplitViewBrowser
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+
+  SplitViewBrowserTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - SplitViewBrowserTests
+    dependencies:
+      - target: SplitViewBrowser
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  SplitViewBrowser:
+    build:
+      targets:
+        SplitViewBrowser: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - SplitViewBrowserTests

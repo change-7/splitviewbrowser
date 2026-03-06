@@ -1,0 +1,10 @@
+"settings.title" = "설정";
+"prompt_repository.title" = "프롬프트 저장소";
+"common.close" = "닫기";
+"common.save" = "저장";
+"common.reload" = "새로고침";
+"common.home" = "홈";
+"common.copy" = "복사";
+"presets.title" = "프리셋";
+"backup_restore.title" = "백업 / 복원";
+"diagnostics.title" = "진단";

@@ -1,0 +1,10 @@
+"settings.title" = "Settings";
+"prompt_repository.title" = "Prompt Repository";
+"common.close" = "Close";
+"common.save" = "Save";
+"common.reload" = "Reload";
+"common.home" = "Home";
+"common.copy" = "Copy";
+"presets.title" = "Presets";
+"backup_restore.title" = "Backup / Restore";
+"diagnostics.title" = "Diagnostics";
