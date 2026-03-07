@@ -120,6 +120,24 @@ struct ContentView: View {
                     .help("전송 시 앞부분에 고정으로 붙일 프롬프트 선택")
                     .accessibilityLabel("전송 기본 프롬프트 선택")
 
+                    Button("전체 홈") {
+                        goHomeForAllVisiblePanels()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    )
+                    .help("현재 보이는 모든 패널을 각 서비스 홈으로 이동")
+                    .accessibilityLabel("전체 패널 홈 이동")
+
                     Button("전체 복사") {
                         triggerPageCopyForAllVisiblePanels()
                     }
@@ -365,6 +383,22 @@ struct ContentView: View {
                 setCollectionStatus("전체 복사 일부 실패: 성공 \(clickedCount), 실패 \(failedCount) (분석 패널 제외)", isError: true)
             }
         }
+    }
+
+    private func goHomeForAllVisiblePanels() {
+        let panelIndices = Array(0 ..< appState.panelCount)
+        guard !panelIndices.isEmpty else {
+            setCollectionStatus("홈으로 이동할 패널이 없습니다", isError: true)
+            return
+        }
+
+        for panelIndex in panelIndices {
+            let service = appState.service(at: panelIndex)
+            let store = appState.webViewStore(for: panelIndex)
+            store.goHome(service: service)
+        }
+
+        setCollectionStatus("전체 패널을 홈으로 이동: \(panelIndices.count)개 패널", isError: false)
     }
 
     private func selectAnalysisTargetPanel(_ panelIndex: Int) {
