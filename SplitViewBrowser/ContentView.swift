@@ -135,7 +135,7 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
                     )
-                    .help("현재 보이는 모든 패널에서 최신 답변 복사 버튼 클릭")
+                    .help("분석 대상 패널을 제외한 현재 보이는 모든 패널에서 최신 답변 복사 버튼 클릭")
                     .accessibilityLabel("전체 패널 최신 답변 복사")
 
                     Button {
@@ -333,9 +333,10 @@ struct ContentView: View {
     }
 
     private func triggerPageCopyForAllVisiblePanels() {
-        let panelIndices = Array(0 ..< appState.panelCount)
+        let analysisTargetIndex = appState.analysisTargetPanelIndex
+        let panelIndices = Array(0 ..< appState.panelCount).filter { $0 != analysisTargetIndex }
         guard !panelIndices.isEmpty else {
-            setCollectionStatus("복사할 패널이 없습니다", isError: true)
+            setCollectionStatus("분석 패널을 제외하면 복사할 패널이 없습니다", isError: true)
             return
         }
 
@@ -359,9 +360,9 @@ struct ContentView: View {
             }
 
             if failedCount == 0 {
-                setCollectionStatus("전체 복사 버튼 클릭 완료: \(clickedCount)/\(panelIndices.count) 패널", isError: false)
+                setCollectionStatus("전체 복사 버튼 클릭 완료: \(clickedCount)/\(panelIndices.count) 패널 (분석 패널 제외)", isError: false)
             } else {
-                setCollectionStatus("전체 복사 일부 실패: 성공 \(clickedCount), 실패 \(failedCount)", isError: true)
+                setCollectionStatus("전체 복사 일부 실패: 성공 \(clickedCount), 실패 \(failedCount) (분석 패널 제외)", isError: true)
             }
         }
     }
