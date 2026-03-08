@@ -115,7 +115,7 @@ final class AppStateTests: XCTestCase {
         state.collectPanelResponse(
             panelIndex: 0,
             service: .chatGPT,
-            sourceURLString: "https://chat.openai.com/",
+            sourceURLString: "https://chatgpt.com/",
             text: "답변 A"
         )
         state.collectPanelResponse(
@@ -151,7 +151,7 @@ final class AppStateTests: XCTestCase {
         state.collectPanelResponse(
             panelIndex: 0,
             service: .chatGPT,
-            sourceURLString: "https://chat.openai.com/",
+            sourceURLString: "https://chatgpt.com/",
             text: "답변 A"
         )
 

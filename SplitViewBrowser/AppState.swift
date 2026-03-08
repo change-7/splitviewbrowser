@@ -121,6 +121,7 @@ struct AppBackupPayload: Codable {
     var selectedAnalysisPromptID: String?
     var webViewRetentionMode: WebViewRetentionMode
     var autoCopyProfiles: [String: AutoCopySiteProfile]
+    var twoPanelCrossSendEnabled: Bool?
 }
 
 enum WebViewRetentionMode: String, CaseIterable, Codable, Identifiable {
@@ -235,6 +236,7 @@ final class AppState: ObservableObject {
         static let activePresetID = "activePresetID"
         static let webViewRetentionMode = "webViewRetentionMode"
         static let autoCopyProfiles = "autoCopyProfiles"
+        static let twoPanelCrossSendEnabled = "twoPanelCrossSendEnabled"
     }
 
     static let minPanels = 1
@@ -249,6 +251,7 @@ final class AppState: ObservableObject {
     @Published private(set) var savedPrompts: [SavedPrompt]
     @Published private(set) var webViewRetentionMode: WebViewRetentionMode
     @Published private(set) var autoCopyProfiles: [String: AutoCopySiteProfile]
+    @Published private(set) var isTwoPanelCrossSendEnabled: Bool
     @Published private(set) var pendingPresetWindowSize: CGSize?
     private(set) var isAppActive: Bool
     @Published private(set) var collectedResponsesByPanel: [Int: CollectedPanelResponse]
@@ -274,6 +277,7 @@ final class AppState: ObservableObject {
         let savedCount = defaults.object(forKey: DefaultsKey.panelCount) as? Int ?? 2
         let restoredServices = AIService.builtInServices + Self.restoreCustomServices(from: defaults)
         let initialPanelCount = Self.clampPanelCount(savedCount)
+        let didClampPanelCount = savedCount != initialPanelCount
         panelCount = initialPanelCount
         panelServiceIDs = Self.restorePanelServiceIDs(from: defaults)
         services = restoredServices
@@ -283,6 +287,7 @@ final class AppState: ObservableObject {
         selectedAnalysisPromptID = Self.restoreSelectedAnalysisPromptID(from: defaults)
         webViewRetentionMode = Self.restoreWebViewRetentionMode(from: defaults)
         autoCopyProfiles = Self.restoreAutoCopyProfiles(from: defaults)
+        isTwoPanelCrossSendEnabled = Self.restoreTwoPanelCrossSendEnabled(from: defaults)
         pendingPresetWindowSize = nil
         isAppActive = NSApp?.isActive ?? true
         collectedResponsesByPanel = [:]
@@ -290,13 +295,7 @@ final class AppState: ObservableObject {
         servicesByID = Dictionary(uniqueKeysWithValues: restoredServices.map { ($0.id, $0) })
         savedPromptsByID = Dictionary(uniqueKeysWithValues: savedPrompts.map { ($0.id, $0) })
 
-        normalizePanelSelectionsAndPersistIfNeeded()
-        normalizePresetsAndPersistIfNeeded()
-        normalizeActivePresetAndPersistIfNeeded()
-        clearActivePresetIfNoLongerMatchingCurrentState()
-        normalizeSavedPromptsAndPersistIfNeeded()
-        normalizeSelectedAnalysisPromptAndPersistIfNeeded()
-        normalizeAutoCopyProfilesAndPersistIfNeeded()
+        normalizeRestoredStateAndPersistIfNeeded(forcePersist: didClampPanelCount)
         configureMemoryPressureMonitoring()
         configureApplicationLifecycleMonitoring()
         logger.log(.info, category: "AppState", "Initialized with \(panelCount) panels, \(services.count) services")
@@ -320,9 +319,7 @@ final class AppState: ObservableObject {
         guard clamped != panelCount else { return }
         let previousCount = panelCount
         panelCount = clamped
-        scheduleDefaultsWrite(key: DefaultsKey.panelCount) { [weak self] in
-            self?.defaults.set(clamped, forKey: DefaultsKey.panelCount)
-        }
+        persistPanelCount()
 
         reconcileWebViewStores(afterPanelCountChangeFrom: previousCount, to: panelCount)
         normalizeAnalysisTargetPanelIndex()
@@ -451,9 +448,7 @@ final class AppState: ObservableObject {
     func setWebViewRetentionMode(_ mode: WebViewRetentionMode) {
         guard webViewRetentionMode != mode else { return }
         webViewRetentionMode = mode
-        scheduleDefaultsWrite(key: DefaultsKey.webViewRetentionMode) { [weak self] in
-            self?.defaults.set(mode.rawValue, forKey: DefaultsKey.webViewRetentionMode)
-        }
+        persistWebViewRetentionMode()
         logger.log(.info, category: "WebViewRetention", "Retention mode changed to \(mode.rawValue)")
 
         switch mode {
@@ -464,6 +459,13 @@ final class AppState: ObservableObject {
         case .keepAlive:
             break
         }
+    }
+
+    func setTwoPanelCrossSendEnabled(_ isEnabled: Bool) {
+        guard isTwoPanelCrossSendEnabled != isEnabled else { return }
+        isTwoPanelCrossSendEnabled = isEnabled
+        persistTwoPanelCrossSendEnabled()
+        logger.log(.info, category: "Layout", "Two-panel cross send \(isEnabled ? "enabled" : "disabled")")
     }
 
     @discardableResult
@@ -777,7 +779,8 @@ final class AppState: ObservableObject {
             savedPrompts: savedPrompts,
             selectedAnalysisPromptID: selectedAnalysisPromptID,
             webViewRetentionMode: webViewRetentionMode,
-            autoCopyProfiles: autoCopyProfiles
+            autoCopyProfiles: autoCopyProfiles,
+            twoPanelCrossSendEnabled: isTwoPanelCrossSendEnabled
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -801,7 +804,8 @@ final class AppState: ObservableObject {
         rebuildServiceIndex()
 
         let previousPanelCount = panelCount
-        panelCount = Self.clampPanelCount(payload.panelCount)
+        let clampedPanelCount = Self.clampPanelCount(payload.panelCount)
+        panelCount = clampedPanelCount
         panelServiceIDs = normalizedServiceIDs(from: payload.panelServiceIDs)
         presets = payload.presets
         activePresetID = payload.activePresetID
@@ -810,18 +814,15 @@ final class AppState: ObservableObject {
         selectedAnalysisPromptID = payload.selectedAnalysisPromptID
         webViewRetentionMode = payload.webViewRetentionMode
         autoCopyProfiles = payload.autoCopyProfiles
+        isTwoPanelCrossSendEnabled = payload.twoPanelCrossSendEnabled ?? false
         pruneCollectedResponsesToVisiblePanels()
         normalizeAnalysisTargetPanelIndex()
         reconcileWebViewStores(afterPanelCountChangeFrom: previousPanelCount, to: panelCount)
 
-        normalizePanelSelectionsAndPersistIfNeeded()
-        normalizePresetsAndPersistIfNeeded()
-        normalizeActivePresetAndPersistIfNeeded()
-        clearActivePresetIfNoLongerMatchingCurrentState()
-        normalizeSavedPromptsAndPersistIfNeeded()
-        normalizeSelectedAnalysisPromptAndPersistIfNeeded()
-        normalizeAutoCopyProfilesAndPersistIfNeeded()
-        flushPendingDefaultWrites()
+        normalizeRestoredStateAndPersistIfNeeded(
+            forcePersist: payload.panelCount != clampedPanelCount,
+            cancelPendingWrites: true
+        )
         logger.log(.info, category: "Backup", "Imported backup payload")
     }
 
@@ -950,15 +951,44 @@ final class AppState: ObservableObject {
         return decoded
     }
 
-    private func normalizePanelSelectionsAndPersistIfNeeded() {
-        let updated = normalizedServiceIDs(from: panelServiceIDs)
-
-        guard updated != panelServiceIDs else { return }
-        panelServiceIDs = updated
-        persistPanelServiceIDs()
+    private static func restoreTwoPanelCrossSendEnabled(from defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: DefaultsKey.twoPanelCrossSendEnabled) as? Bool ?? false
     }
 
-    private func normalizePresetsAndPersistIfNeeded() {
+    private func normalizeRestoredStateAndPersistIfNeeded(
+        forcePersist: Bool = false,
+        cancelPendingWrites: Bool = false
+    ) {
+        var shouldPersist = forcePersist
+        shouldPersist = normalizePanelSelectionsAndPersistIfNeeded(persist: false) || shouldPersist
+        shouldPersist = normalizePresetsAndPersistIfNeeded(persist: false) || shouldPersist
+        shouldPersist = normalizeActivePresetAndPersistIfNeeded(persist: false) || shouldPersist
+        shouldPersist = clearActivePresetIfNoLongerMatchingCurrentState(persist: false) || shouldPersist
+        shouldPersist = normalizeSavedPromptsAndPersistIfNeeded(persist: false) || shouldPersist
+        shouldPersist = normalizeSelectedAnalysisPromptAndPersistIfNeeded(persist: false) || shouldPersist
+        shouldPersist = normalizeAutoCopyProfilesAndPersistIfNeeded(persist: false) || shouldPersist
+
+        guard shouldPersist else { return }
+        if cancelPendingWrites {
+            cancelPendingDefaultWrites()
+        }
+        writeAllDefaultsNow()
+    }
+
+    @discardableResult
+    private func normalizePanelSelectionsAndPersistIfNeeded(persist: Bool = true) -> Bool {
+        let updated = normalizedServiceIDs(from: panelServiceIDs)
+
+        guard updated != panelServiceIDs else { return false }
+        panelServiceIDs = updated
+        if persist {
+            persistPanelServiceIDs()
+        }
+        return true
+    }
+
+    @discardableResult
+    private func normalizePresetsAndPersistIfNeeded(persist: Bool = true) -> Bool {
         var didChange = false
         let normalized = presets.compactMap { preset -> ViewPreset? in
             let trimmedName = preset.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -987,24 +1017,30 @@ final class AppState: ObservableObject {
             return updated
         }
 
-        guard didChange || normalized != presets else { return }
+        guard didChange || normalized != presets else { return false }
         presets = normalized
-        persistPresets()
-    }
-
-    private func normalizeActivePresetAndPersistIfNeeded() {
-        guard let activePresetID else { return }
-        guard presets.contains(where: { $0.id == activePresetID }) else {
-            updateActivePresetID(nil)
-            return
+        if persist {
+            persistPresets()
         }
+        return true
     }
 
-    private func clearActivePresetIfNoLongerMatchingCurrentState() {
-        guard let activePresetID else { return }
+    @discardableResult
+    private func normalizeActivePresetAndPersistIfNeeded(persist: Bool = true) -> Bool {
+        guard let activePresetID else { return false }
+        guard presets.contains(where: { $0.id == activePresetID }) else {
+            updateActivePresetID(nil, persist: persist)
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    private func clearActivePresetIfNoLongerMatchingCurrentState(persist: Bool = true) -> Bool {
+        guard let activePresetID else { return false }
         guard let preset = presets.first(where: { $0.id == activePresetID }) else {
-            updateActivePresetID(nil)
-            return
+            updateActivePresetID(nil, persist: persist)
+            return true
         }
 
         let normalizedPresetServices = normalizedServiceIDs(from: preset.panelServiceIDs)
@@ -1013,8 +1049,10 @@ final class AppState: ObservableObject {
             preset.panelCount == panelCount &&
             normalizedPresetServices == normalizedCurrentServices
         if !isMatching {
-            updateActivePresetID(nil)
+            updateActivePresetID(nil, persist: persist)
+            return true
         }
+        return false
     }
 
     private func syncActivePresetToCurrentStateIfNeeded() {
@@ -1053,7 +1091,8 @@ final class AppState: ObservableObject {
         logger.log(.info, category: "Preset", "Synced active preset \(updatedPreset.name) (\(logReason))")
     }
 
-    private func normalizeSavedPromptsAndPersistIfNeeded() {
+    @discardableResult
+    private func normalizeSavedPromptsAndPersistIfNeeded(persist: Bool = true) -> Bool {
         var didChange = false
         let normalized = savedPrompts.compactMap { prompt -> SavedPrompt? in
             let trimmedText = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1079,27 +1118,38 @@ final class AppState: ObservableObject {
             return updated
         }
 
-        guard didChange || normalized != savedPrompts else { return }
+        guard didChange || normalized != savedPrompts else { return false }
         savedPrompts = normalized
         rebuildSavedPromptIndex()
-        persistSavedPrompts()
+        if persist {
+            persistSavedPrompts()
+        }
+        return true
     }
 
-    private func normalizeSelectedAnalysisPromptAndPersistIfNeeded() {
-        guard let selectedAnalysisPromptID else { return }
+    @discardableResult
+    private func normalizeSelectedAnalysisPromptAndPersistIfNeeded(persist: Bool = true) -> Bool {
+        guard let selectedAnalysisPromptID else { return false }
         guard savedPromptsByID[selectedAnalysisPromptID] != nil else {
             self.selectedAnalysisPromptID = nil
-            persistSelectedAnalysisPromptID()
-            return
+            if persist {
+                persistSelectedAnalysisPromptID()
+            }
+            return true
         }
+        return false
     }
 
-    private func normalizeAutoCopyProfilesAndPersistIfNeeded() {
+    @discardableResult
+    private func normalizeAutoCopyProfilesAndPersistIfNeeded(persist: Bool = true) -> Bool {
         let validServiceIDs = Set(services.map(\.id))
         let normalized = autoCopyProfiles.filter { validServiceIDs.contains($0.key) }
-        guard normalized != autoCopyProfiles else { return }
+        guard normalized != autoCopyProfiles else { return false }
         autoCopyProfiles = normalized
-        persistAutoCopyProfiles()
+        if persist {
+            persistAutoCopyProfiles()
+        }
+        return true
     }
 
     private func normalizeAnalysisTargetPanelIndex() {
@@ -1357,10 +1407,85 @@ final class AppState: ObservableObject {
         logger.log(.info, category: "Lifecycle", "App became active")
     }
 
+    private func encodedData<T: Encodable>(_ value: T) -> Data? {
+        try? JSONEncoder().encode(value)
+    }
+
+    private func writePanelCountToDefaults() {
+        defaults.set(panelCount, forKey: DefaultsKey.panelCount)
+    }
+
+    private func writePanelServiceIDsToDefaults() {
+        defaults.set(panelServiceIDs, forKey: DefaultsKey.panelServices)
+    }
+
+    private func writeCustomServicesToDefaults() {
+        guard let data = encodedData(services.filter { !$0.isBuiltIn }) else { return }
+        defaults.set(data, forKey: DefaultsKey.customServices)
+    }
+
+    private func writePresetsToDefaults() {
+        guard let data = encodedData(presets) else { return }
+        defaults.set(data, forKey: DefaultsKey.presets)
+    }
+
+    private func writeActivePresetIDToDefaults() {
+        if let id = activePresetID {
+            defaults.set(id, forKey: DefaultsKey.activePresetID)
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.activePresetID)
+        }
+    }
+
+    private func writeSavedPromptsToDefaults() {
+        guard let data = encodedData(savedPrompts) else { return }
+        defaults.set(data, forKey: DefaultsKey.savedPrompts)
+    }
+
+    private func writeSelectedAnalysisPromptIDToDefaults() {
+        if let selectedAnalysisPromptID {
+            defaults.set(selectedAnalysisPromptID, forKey: DefaultsKey.selectedAnalysisPromptID)
+        } else {
+            defaults.removeObject(forKey: DefaultsKey.selectedAnalysisPromptID)
+        }
+    }
+
+    private func writeWebViewRetentionModeToDefaults() {
+        defaults.set(webViewRetentionMode.rawValue, forKey: DefaultsKey.webViewRetentionMode)
+    }
+
+    private func writeAutoCopyProfilesToDefaults() {
+        guard let data = encodedData(autoCopyProfiles) else { return }
+        defaults.set(data, forKey: DefaultsKey.autoCopyProfiles)
+    }
+
+    private func writeTwoPanelCrossSendEnabledToDefaults() {
+        defaults.set(isTwoPanelCrossSendEnabled, forKey: DefaultsKey.twoPanelCrossSendEnabled)
+    }
+
+    private func writeAllDefaultsNow() {
+        writePanelCountToDefaults()
+        writePanelServiceIDsToDefaults()
+        writePresetsToDefaults()
+        writeSavedPromptsToDefaults()
+        writeSelectedAnalysisPromptIDToDefaults()
+        writeCustomServicesToDefaults()
+        writeActivePresetIDToDefaults()
+        writeWebViewRetentionModeToDefaults()
+        writeAutoCopyProfilesToDefaults()
+        writeTwoPanelCrossSendEnabledToDefaults()
+    }
+
+    private func cancelPendingDefaultWrites() {
+        for task in defaultsWriteTasks.values {
+            task.cancel()
+        }
+        defaultsWriteTasks.removeAll()
+    }
+
     private func persistPanelServiceIDs() {
-        let value = panelServiceIDs
         scheduleDefaultsWrite(key: DefaultsKey.panelServices) { [weak self] in
-            self?.defaults.set(value, forKey: DefaultsKey.panelServices)
+            self?.writePanelServiceIDsToDefaults()
         }
     }
 
@@ -1373,61 +1498,60 @@ final class AppState: ObservableObject {
     }
 
     private func persistCustomServices() {
-        let custom = services.filter { !$0.isBuiltIn }
-        if let data = try? JSONEncoder().encode(custom) {
-            scheduleDefaultsWrite(key: DefaultsKey.customServices) { [weak self] in
-                self?.defaults.set(data, forKey: DefaultsKey.customServices)
-            }
+        scheduleDefaultsWrite(key: DefaultsKey.customServices) { [weak self] in
+            self?.writeCustomServicesToDefaults()
         }
     }
 
     private func persistPresets() {
-        if let data = try? JSONEncoder().encode(presets) {
-            scheduleDefaultsWrite(key: DefaultsKey.presets) { [weak self] in
-                self?.defaults.set(data, forKey: DefaultsKey.presets)
-            }
+        scheduleDefaultsWrite(key: DefaultsKey.presets) { [weak self] in
+            self?.writePresetsToDefaults()
         }
     }
 
-    private func updateActivePresetID(_ id: String?) {
+    private func updateActivePresetID(_ id: String?, persist: Bool = true) {
         guard activePresetID != id else { return }
         activePresetID = id
-        if let id {
+        if persist {
             scheduleDefaultsWrite(key: DefaultsKey.activePresetID) { [weak self] in
-                self?.defaults.set(id, forKey: DefaultsKey.activePresetID)
-            }
-        } else {
-            scheduleDefaultsWrite(key: DefaultsKey.activePresetID) { [weak self] in
-                self?.defaults.removeObject(forKey: DefaultsKey.activePresetID)
+                self?.writeActivePresetIDToDefaults()
             }
         }
     }
 
     private func persistSavedPrompts() {
-        if let data = try? JSONEncoder().encode(savedPrompts) {
-            scheduleDefaultsWrite(key: DefaultsKey.savedPrompts) { [weak self] in
-                self?.defaults.set(data, forKey: DefaultsKey.savedPrompts)
-            }
+        scheduleDefaultsWrite(key: DefaultsKey.savedPrompts) { [weak self] in
+            self?.writeSavedPromptsToDefaults()
         }
     }
 
     private func persistSelectedAnalysisPromptID() {
-        let selectedAnalysisPromptID = selectedAnalysisPromptID
         scheduleDefaultsWrite(key: DefaultsKey.selectedAnalysisPromptID) { [weak self] in
-            guard let self else { return }
-            if let selectedAnalysisPromptID {
-                self.defaults.set(selectedAnalysisPromptID, forKey: DefaultsKey.selectedAnalysisPromptID)
-            } else {
-                self.defaults.removeObject(forKey: DefaultsKey.selectedAnalysisPromptID)
-            }
+            self?.writeSelectedAnalysisPromptIDToDefaults()
         }
     }
 
     private func persistAutoCopyProfiles() {
-        if let data = try? JSONEncoder().encode(autoCopyProfiles) {
-            scheduleDefaultsWrite(key: DefaultsKey.autoCopyProfiles) { [weak self] in
-                self?.defaults.set(data, forKey: DefaultsKey.autoCopyProfiles)
-            }
+        scheduleDefaultsWrite(key: DefaultsKey.autoCopyProfiles) { [weak self] in
+            self?.writeAutoCopyProfilesToDefaults()
+        }
+    }
+
+    private func persistPanelCount() {
+        scheduleDefaultsWrite(key: DefaultsKey.panelCount) { [weak self] in
+            self?.writePanelCountToDefaults()
+        }
+    }
+
+    private func persistWebViewRetentionMode() {
+        scheduleDefaultsWrite(key: DefaultsKey.webViewRetentionMode) { [weak self] in
+            self?.writeWebViewRetentionModeToDefaults()
+        }
+    }
+
+    private func persistTwoPanelCrossSendEnabled() {
+        scheduleDefaultsWrite(key: DefaultsKey.twoPanelCrossSendEnabled) { [weak self] in
+            self?.writeTwoPanelCrossSendEnabledToDefaults()
         }
     }
 
@@ -1444,36 +1568,8 @@ final class AppState: ObservableObject {
     }
 
     private func flushPendingDefaultWrites() {
-        for task in defaultsWriteTasks.values {
-            task.cancel()
-        }
-        defaultsWriteTasks.removeAll()
-
-        defaults.set(panelCount, forKey: DefaultsKey.panelCount)
-        defaults.set(panelServiceIDs, forKey: DefaultsKey.panelServices)
-        if let presetsData = try? JSONEncoder().encode(presets) {
-            defaults.set(presetsData, forKey: DefaultsKey.presets)
-        }
-        if let promptsData = try? JSONEncoder().encode(savedPrompts) {
-            defaults.set(promptsData, forKey: DefaultsKey.savedPrompts)
-        }
-        if let selectedAnalysisPromptID {
-            defaults.set(selectedAnalysisPromptID, forKey: DefaultsKey.selectedAnalysisPromptID)
-        } else {
-            defaults.removeObject(forKey: DefaultsKey.selectedAnalysisPromptID)
-        }
-        if let customData = try? JSONEncoder().encode(services.filter { !$0.isBuiltIn }) {
-            defaults.set(customData, forKey: DefaultsKey.customServices)
-        }
-        if let id = activePresetID {
-            defaults.set(id, forKey: DefaultsKey.activePresetID)
-        } else {
-            defaults.removeObject(forKey: DefaultsKey.activePresetID)
-        }
-        defaults.set(webViewRetentionMode.rawValue, forKey: DefaultsKey.webViewRetentionMode)
-        if let profileData = try? JSONEncoder().encode(autoCopyProfiles) {
-            defaults.set(profileData, forKey: DefaultsKey.autoCopyProfiles)
-        }
+        cancelPendingDefaultWrites()
+        writeAllDefaultsNow()
     }
 
     private func resolvedAnalysisPromptHeader() -> String {

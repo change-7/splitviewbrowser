@@ -154,6 +154,7 @@ struct SettingsView: View {
         case .general:
             panelWidthPolicySection
             retentionPolicySection
+            twoPanelCrossSendSection
         case .customSites:
             customSitesSection
         case .autoCopy:
@@ -197,6 +198,22 @@ struct SettingsView: View {
                 Text("백그라운드 전환 시 숨겨진 패널 웹뷰는 정책에 따라 우선 정리됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private var twoPanelCrossSendSection: some View {
+        GroupBox("Two Panel Cross Send") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("2패널일 때 패널 사이 화살표 버튼으로 최신 답변 교차 전송 사용", isOn: twoPanelCrossSendBinding)
+                    .toggleStyle(.switch)
+                    .accessibilityLabel("2패널 교차 전송 사용")
+
+                Text("이 기능은 패널이 정확히 2개일 때만 보입니다. 가운데 구분선에 1→2, 2→1 화살표 버튼이 표시되고, 각 패널의 최신 답변을 반대편 패널 입력창으로 바로 전송합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 4)
         }
@@ -386,7 +403,7 @@ struct SettingsView: View {
                     .accessibilityLabel("설정 백업 JSON 가져오기")
                 }
 
-                Text("패널 수, 서비스 선택, 프리셋, 커스텀 사이트, 프롬프트 저장소, 자동복사 설정을 백업/복원합니다.")
+                Text("패널 수, 서비스 선택, 프리셋, 커스텀 사이트, 프롬프트 저장소, 자동복사 설정, 2패널 교차 전송 설정을 백업/복원합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -428,6 +445,13 @@ struct SettingsView: View {
         Binding(
             get: { appState.webViewRetentionMode },
             set: { appState.setWebViewRetentionMode($0) }
+        )
+    }
+
+    private var twoPanelCrossSendBinding: Binding<Bool> {
+        Binding(
+            get: { appState.isTwoPanelCrossSendEnabled },
+            set: { appState.setTwoPanelCrossSendEnabled($0) }
         )
     }
 
@@ -546,213 +570,6 @@ struct SettingsView: View {
             backupMessage = error.localizedDescription
             backupMessageIsError = true
         }
-    }
-}
-
-private struct DiagnosticsSectionView: View {
-    @ObservedObject private var appLogger = AppLogger.shared
-    @State private var diagnosticsExpanded = false
-
-    var body: some View {
-        GroupBox("Diagnostics") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Button("Copy Logs") {
-                        copyDiagnosticsLogs()
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("로그 복사")
-
-                    Button("Clear Logs") {
-                        appLogger.clear()
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("로그 지우기")
-
-                    Spacer()
-
-                    Text("\(appLogger.entries.count) entries")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                DisclosureGroup(isExpanded: $diagnosticsExpanded) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(appLogger.entries.suffix(80)) { entry in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        Text(entry.level.rawValue)
-                                            .font(.caption2.monospaced())
-                                            .foregroundStyle(logLevelColor(entry.level))
-                                        Text(entry.category)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(entry.repeatCount > 1 ? "\(entry.message) (x\(entry.repeatCount))" : entry.message)
-                                        .font(.caption2.monospaced())
-                                        .textSelection(.enabled)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 160)
-                } label: {
-                    Text("Recent App Logs")
-                }
-            }
-            .padding(.top, 4)
-        }
-    }
-
-    private func copyDiagnosticsLogs() {
-        let text = appLogger.joinedText()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    private func logLevelColor(_ level: AppLogger.Level) -> Color {
-        switch level {
-        case .info:
-            return .secondary
-        case .warning:
-            return .orange
-        case .error:
-            return .red
-        }
-    }
-}
-
-private struct AutoCopyProfileEditorRow: View {
-    @EnvironmentObject private var appState: AppState
-    let service: AIService
-
-    @State private var supportLevel: AutoCopySupportLevel = .unsupported
-    @State private var composerSelectorsText = ""
-    @State private var sendSelectorsText = ""
-    @State private var sendPatternText = ""
-    @State private var enableEnterKey = true
-    @State private var hasLoaded = false
-    @State private var isExpanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(service.title)
-                    Text(service.urlString)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Picker("지원 상태", selection: $supportLevel) {
-                    ForEach(AutoCopySupportLevel.allCases) { level in
-                        Text(level.title).tag(level)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 110)
-                .onChange(of: supportLevel) { _ in saveProfile() }
-                .accessibilityLabel("\(service.title) 자동복사 지원 상태")
-
-                Button {
-                    resetProfile()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .buttonStyle(.bordered)
-                .help("Reset to defaults")
-                .accessibilityLabel("\(service.title) 자동복사 설정 초기화")
-            }
-
-            DisclosureGroup(isExpanded: $isExpanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("입력창 선택자 (쉼표 구분, 비우면 기본값 사용)", text: $composerSelectorsText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { saveProfile() }
-
-                    TextField("전송 버튼 선택자 (쉼표 구분, 비우면 기본값 사용)", text: $sendSelectorsText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { saveProfile() }
-
-                    TextField("전송 버튼 감지 패턴(정규식, 비우면 기본값 사용)", text: $sendPatternText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { saveProfile() }
-
-                    Toggle("Enter 전송 감지 사용", isOn: $enableEnterKey)
-                        .toggleStyle(.checkbox)
-                        .onChange(of: enableEnterKey) { _ in saveProfile() }
-
-                    HStack {
-                        Spacer()
-                        Button("저장") {
-                            saveProfile()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-                .padding(.top, 4)
-            } label: {
-                Text("고급 규칙")
-                    .font(.caption)
-            }
-        }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.quaternary)
-        )
-        .onAppear {
-            loadProfile()
-        }
-        .onChange(of: service.id) { _ in
-            loadProfile()
-        }
-    }
-
-    private func loadProfile() {
-        let profile = appState.autoCopyProfile(for: service)
-        supportLevel = profile.supportLevel
-        composerSelectorsText = (profile.composerSelectors ?? []).joined(separator: ", ")
-        sendSelectorsText = (profile.sendButtonSelectors ?? []).joined(separator: ", ")
-        sendPatternText = profile.sendPattern ?? ""
-        enableEnterKey = profile.enableEnterKey ?? AutoCopyCatalog.defaultConfiguration(for: service).rule?.enableEnterKey ?? true
-        hasLoaded = true
-    }
-
-    private func saveProfile() {
-        guard hasLoaded else { return }
-        let profile = AutoCopySiteProfile(
-            supportLevel: supportLevel,
-            composerSelectors: parseCSV(composerSelectorsText),
-            sendButtonSelectors: parseCSV(sendSelectorsText),
-            sendPattern: normalizedOptionalText(sendPatternText),
-            enableEnterKey: enableEnterKey
-        )
-        appState.updateAutoCopyProfile(for: service.id, profile: profile)
-    }
-
-    private func resetProfile() {
-        appState.resetAutoCopyProfile(for: service.id)
-        loadProfile()
-    }
-
-    private func parseCSV(_ text: String) -> [String]? {
-        let values = text
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return values.isEmpty ? nil : values
-    }
-
-    private func normalizedOptionalText(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

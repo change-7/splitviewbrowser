@@ -18,6 +18,8 @@ DerivedData/
 .build/
 
 # Internal / private folders
+AGENTS.md
+SESSION_HANDOFF.md
 mobile/
 SplitViewBrowser_GitHub_Copy/
 VERSION_HISTORY.md

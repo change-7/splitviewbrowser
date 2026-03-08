@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 private enum Layout {
     static let mobileMin: CGFloat = 360
@@ -10,6 +9,11 @@ private enum Layout {
     static let topPadding: CGFloat = 4
     static let bottomPadding: CGFloat = 8
     static let minimumWindowHeight: CGFloat = 520
+}
+
+private enum TwoPanelCrossSendDirection: Hashable {
+    case firstToSecond
+    case secondToFirst
 }
 
 struct ContentView: View {
@@ -25,6 +29,8 @@ struct ContentView: View {
     @State private var collectionStatusMessage = ""
     @State private var collectionStatusIsError = false
     @State private var collectionStatusClearTask: Task<Void, Never>?
+    @State private var isTwoPanelCrossSendInFlight = false
+    @State private var lastTwoPanelCrossSendDirection: TwoPanelCrossSendDirection?
 
     var body: some View {
         GeometryReader { proxy in
@@ -120,63 +126,37 @@ struct ContentView: View {
                     .help("전송 시 앞부분에 고정으로 붙일 프롬프트 선택")
                     .accessibilityLabel("전송 기본 프롬프트 선택")
 
-                    Button("전체 홈") {
-                        goHomeForAllVisiblePanels()
+                    ToolbarActionChipButton(
+                        helpText: "현재 보이는 모든 패널을 각 서비스 홈으로 이동",
+                        accessibilityLabel: "전체 패널 홈 이동",
+                        action: {
+                            goHomeForAllVisiblePanels()
+                        }
+                    ) {
+                        Text("전체 홈")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
-                    .help("현재 보이는 모든 패널을 각 서비스 홈으로 이동")
-                    .accessibilityLabel("전체 패널 홈 이동")
 
-                    Button("전체 복사") {
-                        triggerPageCopyForAllVisiblePanels()
+                    ToolbarActionChipButton(
+                        helpText: "분석 대상 패널을 제외한 현재 보이는 모든 패널에서 최신 답변 복사 버튼 클릭",
+                        accessibilityLabel: "전체 패널 최신 답변 복사",
+                        action: {
+                            triggerPageCopyForAllVisiblePanels()
+                        }
+                    ) {
+                        Text("전체 복사")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
-                    .help("분석 대상 패널을 제외한 현재 보이는 모든 패널에서 최신 답변 복사 버튼 클릭")
-                    .accessibilityLabel("전체 패널 최신 답변 복사")
 
-                    Button {
-                        appState.clearCollectedResponsesForVisiblePanels()
-                        setCollectionStatus("수집 답변 비움", isError: false)
-                    } label: {
+                    ToolbarActionChipButton(
+                        helpText: "현재 보이는 패널의 수집 답변 비우기",
+                        accessibilityLabel: "수집 답변 비우기",
+                        isEnabled: appState.visibleCollectedResponseCount > 0,
+                        action: {
+                            appState.clearCollectedResponsesForVisiblePanels()
+                            setCollectionStatus("수집 답변 비움", isError: false)
+                        }
+                    ) {
                         Image(systemName: "trash")
-                            .foregroundStyle(Color.primary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .disabled(appState.visibleCollectedResponseCount == 0)
-                    .help("현재 보이는 패널의 수집 답변 비우기")
-                    .accessibilityLabel("수집 답변 비우기")
                 }
             }
 
@@ -220,7 +200,20 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            quickComposeTargetBar
+            QuickComposeTargetBarView(
+                selectedPanelIndices: $quickComposeTargetPanels,
+                panelCount: appState.panelCount,
+                onOpenCompose: {
+                    isPromptRepositoryPresented = false
+                    isSettingsPresented = false
+                    isQuickComposePresented = true
+                },
+                onOpenSettings: {
+                    isPromptRepositoryPresented = false
+                    isQuickComposePresented = false
+                    isSettingsPresented.toggle()
+                }
+            )
         }
         .onAppear {
             initializeQuickComposeTargetsIfNeeded()
@@ -240,6 +233,10 @@ struct ContentView: View {
                 onClose: { isQuickComposePresented = false }
             )
             .frame(minWidth: 620, minHeight: 420)
+        }
+        .popover(isPresented: $isSettingsPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            SettingsView()
+                .frame(width: 980, height: 680)
         }
     }
 
@@ -287,25 +284,37 @@ struct ContentView: View {
             let panelCount = appState.panelCount
             let currentPanelWidth = panelWidth(for: proxy.size.width, columns: panelCount)
 
-            HStack(spacing: Layout.gutter) {
-                ForEach(0 ..< panelCount, id: \.self) { index in
-                    WebPanelView(
-                        panelIndex: index,
-                        service: serviceBinding(for: index),
-                        availableServices: appState.services,
-                        store: appState.webViewStore(for: index),
-                        isAnalysisTarget: appState.analysisTargetPanelIndex == index,
-                        onSetAnalysisTarget: {
-                            selectAnalysisTargetPanel(index)
-                        },
-                        onSendCollectedResponsesToPanel: {
-                            sendCollectedResponses(toPanel: index, updateAnalysisTarget: true)
-                        },
-                        onTriggerPageCopy: {
-                            triggerLatestPageCopy(from: index)
-                        }
+            ZStack {
+                HStack(spacing: Layout.gutter) {
+                    ForEach(0 ..< panelCount, id: \.self) { index in
+                        WebPanelView(
+                            panelIndex: index,
+                            service: serviceBinding(for: index),
+                            availableServices: appState.services,
+                            store: appState.webViewStore(for: index),
+                            isAnalysisTarget: appState.analysisTargetPanelIndex == index,
+                            onSetAnalysisTarget: {
+                                selectAnalysisTargetPanel(index)
+                            },
+                            onSendCollectedResponsesToPanel: {
+                                sendCollectedResponses(toPanel: index, updateAnalysisTarget: true)
+                            },
+                            onTriggerPageCopy: {
+                                triggerLatestPageCopy(from: index)
+                            }
+                        )
+                            .frame(width: currentPanelWidth)
+                    }
+                }
+
+                if shouldShowTwoPanelCrossSendControl {
+                    TwoPanelCrossSendControlView(
+                        isInFlight: isTwoPanelCrossSendInFlight,
+                        isFirstToSecondHighlighted: lastTwoPanelCrossSendDirection == .firstToSecond,
+                        isSecondToFirstHighlighted: lastTwoPanelCrossSendDirection == .secondToFirst,
+                        onFirstToSecond: { sendLatestAnswerAcrossPanels(from: 0, to: 1) },
+                        onSecondToFirst: { sendLatestAnswerAcrossPanels(from: 1, to: 0) }
                     )
-                        .frame(width: currentPanelWidth)
                 }
             }
             .padding(.horizontal, Layout.horizontalPadding)
@@ -313,6 +322,10 @@ struct ContentView: View {
             .padding(.bottom, Layout.bottomPadding)
             .frame(width: max(proxy.size.width, minimumWindowSize.width), alignment: .center)
         }
+    }
+
+    private var shouldShowTwoPanelCrossSendControl: Bool {
+        appState.panelCount == 2 && appState.isTwoPanelCrossSendEnabled
     }
 
     private func applyPresetFromToolbar(_ preset: ViewPreset) {
@@ -401,6 +414,119 @@ struct ContentView: View {
         setCollectionStatus("전체 패널을 홈으로 이동: \(panelIndices.count)개 패널", isError: false)
     }
 
+    @MainActor
+    private func sendLatestAnswerAcrossPanels(from sourcePanelIndex: Int, to targetPanelIndex: Int) {
+        guard appState.panelCount == 2 else {
+            setCollectionStatus("이 기능은 2패널일 때만 사용할 수 있습니다", isError: true)
+            return
+        }
+
+        guard sourcePanelIndex != targetPanelIndex else {
+            setCollectionStatus("같은 패널로는 전송할 수 없습니다", isError: true)
+            return
+        }
+
+        guard !isTwoPanelCrossSendInFlight else {
+            setCollectionStatus("패널 간 전송이 이미 진행 중입니다", isError: true)
+            return
+        }
+
+        let sourceStore = appState.webViewStore(for: sourcePanelIndex)
+        let targetStore = appState.webViewStore(for: targetPanelIndex)
+        let copyStartedAt = Date()
+
+        if sourcePanelIndex == 0, targetPanelIndex == 1 {
+            lastTwoPanelCrossSendDirection = .firstToSecond
+        } else if sourcePanelIndex == 1, targetPanelIndex == 0 {
+            lastTwoPanelCrossSendDirection = .secondToFirst
+        }
+
+        isTwoPanelCrossSendInFlight = true
+        setCollectionStatus("패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)로 전송 중", isError: false)
+
+        Task { @MainActor in
+            defer {
+                isTwoPanelCrossSendInFlight = false
+            }
+
+            let copyResult = await sourceStore.triggerAssistantAnswerCopy(targetOffset: 0)
+            switch copyResult {
+            case let .failure(error):
+                setCollectionStatus("패널 \(sourcePanelIndex + 1) 최신 답변 복사 실패: \(error.localizedDescription)", isError: true)
+                return
+            case .success:
+                break
+            }
+
+            guard let copiedText = await waitForFreshCopiedResponse(
+                from: sourceStore,
+                panelIndex: sourcePanelIndex,
+                notBefore: copyStartedAt
+            ) else {
+                setCollectionStatus("패널 \(sourcePanelIndex + 1) 최신 답변을 감지하지 못했습니다", isError: true)
+                return
+            }
+
+            let prepareResult = await targetStore.prepareComposerForInput()
+            if case let .failure(error) = prepareResult {
+                setCollectionStatus("패널 \(targetPanelIndex + 1) 입력창 준비 실패: \(error.localizedDescription)", isError: true)
+                return
+            }
+
+            let insertResult = await targetStore.sendTextToComposer(copiedText, submit: false)
+            switch insertResult {
+            case let .success(insertResponse):
+                guard insertResponse.inserted else {
+                    setCollectionStatus("패널 \(targetPanelIndex + 1)에 답변 입력 실패", isError: true)
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: 320_000_000)
+                let submitResult = await targetStore.submitPreparedComposer()
+                switch submitResult {
+                case let .success(result):
+                    if result.submitted {
+                        setCollectionStatus("패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)로 전송 완료", isError: false)
+                    } else {
+                        setCollectionStatus(
+                            "패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)에 입력 완료 (제출 확인 필요)",
+                            isError: true
+                        )
+                    }
+                case let .failure(error):
+                    setCollectionStatus("패널 \(targetPanelIndex + 1) 제출 실패: \(error.localizedDescription)", isError: true)
+                }
+            case let .failure(error):
+                setCollectionStatus("패널 \(targetPanelIndex + 1) 전송 실패: \(error.localizedDescription)", isError: true)
+            }
+        }
+    }
+
+    @MainActor
+    private func waitForFreshCopiedResponse(
+        from store: WebViewStore,
+        panelIndex: Int,
+        notBefore date: Date
+    ) async -> String? {
+        for _ in 0..<10 {
+            if let copied = store.lastCopiedAssistantResponse,
+               copied.capturedAt >= date
+            {
+                return copied.text
+            }
+
+            if let collected = appState.collectedResponse(for: panelIndex),
+               collected.capturedAt >= date
+            {
+                return collected.text
+            }
+
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return nil }
+        }
+        return nil
+    }
+
     private func selectAnalysisTargetPanel(_ panelIndex: Int) {
         appState.setAnalysisTargetPanelIndex(panelIndex)
         prepareAnalysisTargetComposer(panelIndex: panelIndex)
@@ -478,81 +604,6 @@ struct ContentView: View {
             .sorted()
     }
 
-    private var quickComposeTargetBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                isPromptRepositoryPresented = false
-                isSettingsPresented = false
-                isQuickComposePresented = true
-            } label: {
-                Label("입력창", systemImage: "square.and.pencil")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .accessibilityLabel("동시 입력창 열기")
-
-            Text("동시 입력/전송 대상")
-                .font(.caption.weight(.semibold))
-
-            Button("전체") {
-                quickComposeTargetPanels = Set(0 ..< appState.panelCount)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityLabel("모든 패널 선택")
-
-            Button("해제") {
-                quickComposeTargetPanels.removeAll()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityLabel("패널 선택 해제")
-
-            ForEach(0 ..< appState.panelCount, id: \.self) { index in
-                Toggle("P\(index + 1)", isOn: quickComposeTargetBinding(for: index))
-                    .toggleStyle(.checkbox)
-                    .font(.caption2)
-            }
-
-            Spacer(minLength: 6)
-
-            Button {
-                isPromptRepositoryPresented = false
-                isQuickComposePresented = false
-                isSettingsPresented.toggle()
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Settings")
-            .accessibilityLabel("설정 열기")
-            .popover(isPresented: $isSettingsPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-                SettingsView()
-                    .frame(width: 980, height: 680)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.thinMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-        }
-    }
-
-    private func quickComposeTargetBinding(for index: Int) -> Binding<Bool> {
-        Binding(
-            get: { quickComposeTargetPanels.contains(index) },
-            set: { isSelected in
-                if isSelected {
-                    quickComposeTargetPanels.insert(index)
-                } else {
-                    quickComposeTargetPanels.remove(index)
-                }
-            }
-        )
-    }
-
     private func initializeQuickComposeTargetsIfNeeded() {
         guard quickComposeKnownPanelCount == 0 else { return }
         quickComposeKnownPanelCount = appState.panelCount
@@ -594,15 +645,31 @@ struct ContentView: View {
 
             for panelIndex in targets {
                 let store = appState.webViewStore(for: panelIndex)
-                let result = await store.sendTextToComposer(trimmed, submit: true)
-                switch result {
-                case let .success(sendResult):
-                    if sendResult.submitted {
-                        submittedCount += 1
-                    } else if sendResult.inserted {
-                        insertedOnlyCount += 1
-                    } else {
+                let prepareResult = await store.prepareComposerForInput()
+                if case .failure = prepareResult {
+                    failedCount += 1
+                    continue
+                }
+
+                let insertResult = await store.sendTextToComposer(trimmed, submit: false)
+                switch insertResult {
+                case let .success(insertResponse):
+                    guard insertResponse.inserted else {
                         failedCount += 1
+                        continue
+                    }
+
+                    try? await Task.sleep(nanoseconds: 320_000_000)
+                    let submitResult = await store.submitPreparedComposer()
+                    switch submitResult {
+                    case let .success(sendResult):
+                        if sendResult.submitted {
+                            submittedCount += 1
+                        } else {
+                            insertedOnlyCount += 1
+                        }
+                    case .failure:
+                        insertedOnlyCount += 1
                     }
                 case .failure:
                     failedCount += 1

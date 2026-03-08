@@ -82,6 +82,7 @@ final class WebViewStore: NSObject, ObservableObject {
     private var currentService: AIService?
     private var lastComposerSendThrottle: ComposerSendThrottle?
     private var lastAppliedAutoCopyPayloadSignature: String?
+    private weak var cachedEmbeddedScrollView: NSScrollView?
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -92,6 +93,8 @@ final class WebViewStore: NSObject, ObservableObject {
         webView = WKWebView(frame: .zero, configuration: configuration)
 
         super.init()
+
+        configureWebViewScrollBehavior()
 
         copyOnSendBridge.handleText = { text in
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -164,6 +167,8 @@ final class WebViewStore: NSObject, ObservableObject {
             guard let self else { return }
             self.isLoadingPage = false
             self.runtimeIssue = nil
+            self.configureWebViewScrollBehavior()
+            self.applyHostLayoutFixes()
             self.syncAutoCopySettingsToPage()
         }
         navigationProxy.didFailNavigation = { [weak self] url, error in
@@ -287,6 +292,7 @@ final class WebViewStore: NSObject, ObservableObject {
         guard !hasPreparedForRelease else { return }
         hasPreparedForRelease = true
         lastAppliedAutoCopyPayloadSignature = nil
+        cachedEmbeddedScrollView = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.copyOnSendMessageName)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.answerCopyCaptureMessageName)
         webView.stopLoading()
@@ -396,6 +402,18 @@ final class WebViewStore: NSObject, ObservableObject {
     func sendTextToComposer(_ text: String, submit: Bool) async -> Result<ComposerSendResult, Error> {
         await withCheckedContinuation { continuation in
             sendTextToComposer(text, submit: submit) { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    func submitPreparedComposer(completion: @escaping (Result<ComposerSendResult, Error>) -> Void) {
+        evaluateComposerSend(text: nil, submit: true, completion: completion)
+    }
+
+    func submitPreparedComposer() async -> Result<ComposerSendResult, Error> {
+        await withCheckedContinuation { continuation in
+            submitPreparedComposer { result in
                 continuation.resume(returning: result)
             }
         }
@@ -534,6 +552,7 @@ final class WebViewStore: NSObject, ObservableObject {
     private func evaluateComposerSend(
         text: String?,
         submit: Bool,
+        isSubmitRetry: Bool = false,
         completion: @escaping (Result<ComposerSendResult, Error>) -> Void
     ) {
         struct InjectPayload: Encodable {
@@ -626,6 +645,12 @@ final class WebViewStore: NSObject, ObservableObject {
                         submitted: payload.submitted ?? false,
                         message: payload.message ?? "완료"
                     )
+
+                    if submit, !isSubmitRetry, result.inserted, !result.submitted {
+                        self.retryDeferredComposerSubmit(completion: completion)
+                        return
+                    }
+
                     self.logger.log(
                         .info,
                         category: "Collection",
@@ -634,6 +659,57 @@ final class WebViewStore: NSObject, ObservableObject {
                     completion(.success(result))
                 } catch {
                     completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    private func retryDeferredComposerSubmit(
+        attempt: Int = 0,
+        completion: @escaping (Result<ComposerSendResult, Error>) -> Void
+    ) {
+        let retryDelays: [UInt64] = [180_000_000, 360_000_000, 700_000_000]
+        guard attempt < retryDelays.count else {
+            completion(
+                .success(
+                    ComposerSendResult(
+                        inserted: true,
+                        submitted: false,
+                        message: "입력 완료 (전송 버튼 지연 활성화로 제출 실패)"
+                    )
+                )
+            )
+            return
+        }
+
+        let delay = retryDelays[attempt]
+        logger.log(.info, category: "Collection", "Retrying delayed submit attempt \(attempt + 1)")
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+
+            self.evaluateComposerSend(text: nil, submit: true, isSubmitRetry: true) { result in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch result {
+                    case let .success(retryResult):
+                        if retryResult.submitted {
+                            completion(
+                                .success(
+                                    ComposerSendResult(
+                                        inserted: true,
+                                        submitted: true,
+                                        message: retryResult.message
+                                    )
+                                )
+                            )
+                        } else {
+                            self.retryDeferredComposerSubmit(attempt: attempt + 1, completion: completion)
+                        }
+                    case .failure:
+                        self.retryDeferredComposerSubmit(attempt: attempt + 1, completion: completion)
+                    }
                 }
             }
         }
@@ -686,6 +762,59 @@ final class WebViewStore: NSObject, ObservableObject {
                 }
             }
         ]
+    }
+
+    private func configureWebViewScrollBehavior() {
+        guard let scrollView = resolvedEmbeddedScrollView() else { return }
+        let host = webView.url?.host?.lowercased() ?? ""
+        let hidesVerticalScroller = WebViewHostFixCatalog.hidesOuterVerticalScroller(for: host)
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = !hidesVerticalScroller
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = NSScroller.Style.overlay
+        scrollView.horizontalScrollElasticity = NSScrollView.Elasticity.none
+        scrollView.verticalScrollElasticity = hidesVerticalScroller ? NSScrollView.Elasticity.none : NSScrollView.Elasticity.automatic
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
+        scrollView.scrollerInsets = NSEdgeInsetsZero
+    }
+
+    private func resolvedEmbeddedScrollView() -> NSScrollView? {
+        if let cachedEmbeddedScrollView {
+            return cachedEmbeddedScrollView
+        }
+        let scrollView = embeddedScrollView(in: webView)
+        cachedEmbeddedScrollView = scrollView
+        return scrollView
+    }
+
+    private func embeddedScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+
+        for subview in view.subviews {
+            if let scrollView = embeddedScrollView(in: subview) {
+                return scrollView
+            }
+        }
+
+        return nil
+    }
+
+    private func applyHostLayoutFixes() {
+        guard let host = webView.url?.host?.lowercased(), !host.isEmpty else { return }
+        guard let js = WebViewHostFixCatalog.layoutFixScript(for: host) else { return }
+        webView.evaluateJavaScript(js) { [weak self] _, error in
+            guard let error else { return }
+            Task { @MainActor [weak self] in
+                self?.logger.log(
+                    .warning,
+                    category: "WebView",
+                    "Failed to apply ChatGPT layout fix: \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     private func syncAutoCopySettingsToPage() {

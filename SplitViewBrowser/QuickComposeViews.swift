@@ -69,7 +69,7 @@ struct QuickComposePopoverView: View {
                     .frame(maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
 
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("여기에 입력하세요 (Shift+Enter 줄바꿈, Enter 전송)")
+                    Text("여기에 입력하세요 (Enter 줄바꿈, Shift+Enter 전송)")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12)
@@ -79,7 +79,7 @@ struct QuickComposePopoverView: View {
             }
 
             HStack {
-                Text("Shift+Enter: 줄바꿈 · Enter: 선택 패널에 동시 입력+전송")
+                Text("Enter: 줄바꿈 · Shift+Enter: 선택 패널에 동시 입력+전송")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -184,9 +184,7 @@ private struct SubmitAwareTextEditor: NSViewRepresentable {
         context.coordinator.shouldAutoFocus = shouldAutoFocus
         guard let textView = context.coordinator.textView else { return }
         textView.onSubmit = { context.coordinator.onSubmit() }
-        if textView.string != text {
-            textView.string = text
-        }
+        context.coordinator.syncTextFromModelIfNeeded()
         DispatchQueue.main.async {
             context.coordinator.focusIfNeeded()
         }
@@ -197,6 +195,8 @@ private struct SubmitAwareTextEditor: NSViewRepresentable {
         var onSubmit: () -> Void
         var shouldAutoFocus: Bool
         private var didAutoFocus = false
+        private var isApplyingModelUpdate = false
+        private var lastSelectedRanges: [NSValue] = []
         weak var textView: SubmitAwareTextView?
 
         init(text: Binding<String>, onSubmit: @escaping () -> Void, shouldAutoFocus: Bool) {
@@ -207,7 +207,14 @@ private struct SubmitAwareTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            guard !isApplyingModelUpdate else { return }
+            lastSelectedRanges = textView.selectedRanges
             text = textView.string
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            lastSelectedRanges = textView.selectedRanges
         }
 
         func focusIfNeeded() {
@@ -216,6 +223,35 @@ private struct SubmitAwareTextEditor: NSViewRepresentable {
             guard let textView, let window = textView.window else { return }
             if window.makeFirstResponder(textView) {
                 didAutoFocus = true
+            }
+        }
+
+        func syncTextFromModelIfNeeded() {
+            guard let textView else { return }
+            guard !textView.hasMarkedText() else { return }
+            guard textView.string != text else { return }
+
+            let isActivelyEditing = textView.window?.firstResponder === textView
+            guard !isActivelyEditing else { return }
+
+            let clampedRanges = clampedSelectedRanges(for: text)
+            isApplyingModelUpdate = true
+            textView.string = text
+            textView.selectedRanges = clampedRanges
+            lastSelectedRanges = clampedRanges
+            isApplyingModelUpdate = false
+        }
+
+        private func clampedSelectedRanges(for text: String) -> [NSValue] {
+            let length = text.utf16.count
+            let sourceRanges = lastSelectedRanges.isEmpty ? [NSValue(range: NSRange(location: length, length: 0))] : lastSelectedRanges
+
+            return sourceRanges.map { value in
+                let range = value.rangeValue
+                let location = min(max(range.location, 0), length)
+                let maxLength = max(length - location, 0)
+                let clampedLength = min(max(range.length, 0), maxLength)
+                return NSValue(range: NSRange(location: location, length: clampedLength))
             }
         }
     }
@@ -231,12 +267,18 @@ private final class SubmitAwareTextView: NSTextView {
             return
         }
 
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
+
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if modifiers.contains(.shift) {
-            insertNewline(nil)
-        } else {
+        if modifiers.contains(.command) || modifiers.contains(.option) || modifiers.contains(.control) {
+            super.keyDown(with: event)
+        } else if modifiers.contains(.shift) {
             onSubmit?()
+        } else {
+            insertNewline(nil)
         }
     }
 }
-

@@ -1005,6 +1005,18 @@ extension WebViewStore {
             return results;
           };
 
+          const uniqueElements = (elements) => {
+            const seen = new Set();
+            const result = [];
+            for (const element of elements) {
+              if (!(element instanceof Element)) continue;
+              if (seen.has(element)) continue;
+              seen.add(element);
+              result.push(element);
+            }
+            return result;
+          };
+
           const isVisible = (element) => {
             if (!(element instanceof Element)) return false;
             const style = window.getComputedStyle(element);
@@ -1361,6 +1373,52 @@ extension WebViewStore {
             }
           };
 
+          const findPostSubmitConfirmationButton = () => {
+            if (!(host.includes("openai.com") || host.includes("chatgpt.com"))) return null;
+
+            const dialogRoots = queryAllDeep([
+              "[role='dialog']",
+              "[aria-modal='true']",
+              "[role='alertdialog']"
+            ]).filter(isVisible);
+
+            const candidates = uniqueElements(
+              dialogRoots.flatMap((root) => queryAllDeep(["button", "[role='button']"]).filter((node) => root.contains(node)))
+            )
+              .filter((node) => node instanceof HTMLElement)
+              .filter((node) => isVisible(node))
+              .filter((node) => !node.hasAttribute("disabled"))
+              .filter((node) => node.getAttribute("aria-disabled") !== "true");
+
+            let best = null;
+            let bestScore = -10000;
+            for (const node of candidates) {
+              const labelText = [
+                node.getAttribute("aria-label") || "",
+                node.getAttribute("title") || "",
+                node.textContent || ""
+              ].join(" ").toLowerCase();
+
+              if (/(cancel|dismiss|close|취소|닫기)/.test(labelText)) continue;
+
+              let score = 0;
+              if (/(confirm|continue|send|submit|ok|확인|계속|보내기|전송|제출)/.test(labelText)) score += 400;
+              if (node instanceof HTMLButtonElement) score += 40;
+              if (score > bestScore) {
+                best = node;
+                bestScore = score;
+              }
+            }
+
+            return bestScore > 0 ? best : null;
+          };
+
+          const confirmPostSubmitIfNeeded = () => {
+            const button = findPostSubmitConfirmationButton();
+            if (!(button instanceof HTMLElement)) return false;
+            return clickSendButton(button);
+          };
+
           const submitByForm = (composer) => {
             if (!(composer instanceof HTMLElement)) return false;
             const form = composer.closest("form");
@@ -1413,12 +1471,15 @@ extension WebViewStore {
 
             if (button && clickSendButton(button)) {
               submitted = true;
+              confirmPostSubmitIfNeeded();
               message = "입력 및 버튼 전송 시도 완료";
             } else if (submitComposer && (rule ? rule.enableEnterKey !== false : true) && submitByEnterKey(submitComposer)) {
               submitted = true;
+              confirmPostSubmitIfNeeded();
               message = "입력 및 Enter 전송 시도 완료";
             } else if (submitByForm(submitComposer)) {
               submitted = true;
+              confirmPostSubmitIfNeeded();
               message = "입력 및 Form 전송 시도 완료";
             } else {
               message = "입력 완료 (전송 경로 미탐지)";

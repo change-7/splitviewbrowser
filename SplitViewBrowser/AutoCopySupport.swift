@@ -97,7 +97,7 @@ enum AutoCopyCatalog {
     static func defaultConfiguration(for service: AIService) -> AutoCopyResolvedConfiguration {
         let host = service.homeURL.host?.lowercased() ?? ""
 
-        if host.contains("openai.com") {
+        if host.contains("openai.com") || host.contains("chatgpt.com") {
             return AutoCopyResolvedConfiguration(
                 supportLevel: .supported,
                 rule: AutoCopyRule(

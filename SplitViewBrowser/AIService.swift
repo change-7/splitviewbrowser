@@ -4,7 +4,7 @@ struct AIService: Identifiable, Codable, Hashable {
     static let chatGPT = AIService(
         id: "builtin-chatgpt",
         title: "ChatGPT",
-        urlString: "https://chat.openai.com/",
+        urlString: "https://chatgpt.com/",
         isBuiltIn: true
     )
     static let gemini = AIService(
@@ -33,7 +33,7 @@ struct AIService: Identifiable, Codable, Hashable {
     let isBuiltIn: Bool
 
     var homeURL: URL {
-        URL(string: urlString) ?? URL(string: "https://chat.openai.com/")!
+        URL(string: urlString) ?? URL(string: "https://chatgpt.com/")!
     }
 
     static func defaultPanelServiceIDs(count: Int) -> [String] {

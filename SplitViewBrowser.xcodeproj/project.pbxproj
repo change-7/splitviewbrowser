@@ -7,12 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		013CC8CA72373EA761A9E3D5 /* WebViewHostFixCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C52AD81A519C18B1992344AE /* WebViewHostFixCatalog.swift */; };
 		16396CD96DF585EB9A94D7E3 /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66028AAB645A6F1E719CEEDB /* AppStateTests.swift */; };
 		3425D98B58570407F5FEBC6F /* AutoCopySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */; };
 		4DB0D28AD8EA7F31F480E96F /* WindowMinimumSizeAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */; };
 		53F4352B3C16F56DB91644B1 /* QuickComposeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FFA0155A76962CFF586288 /* QuickComposeViews.swift */; };
+		55E2D22B7F6B51DBD2CACBB0 /* SettingsSupportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5EA34CB3122363F5801F0C8 /* SettingsSupportViews.swift */; };
 		71828A17C07954BEAB1352B3 /* WebViewStore+Scripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED9F6245A614C061D261539 /* WebViewStore+Scripts.swift */; };
 		7AD6BE47C7B513F50D7D170E /* WebViewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93C34ADCBBE091505698D633 /* WebViewStore.swift */; };
+		7F8FF3EBFD2FE568ABBCDF7C /* ContentAccessoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED8B40518F73BB9BC95CEB9 /* ContentAccessoryViews.swift */; };
 		852963F5E6FBF59450C8F79C /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19706D2BA865D3779CBDEFA8 /* AppLogger.swift */; };
 		950FB8CA1D86BC7909267838 /* PromptRepositoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */; };
 		9E0A0C49E3EA88BD87E6CEDD /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C8C9AE4C3C9840DF7A2F05 /* AppState.swift */; };
@@ -39,6 +42,7 @@
 /* Begin PBXFileReference section */
 		19706D2BA865D3779CBDEFA8 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		1AFAA9CC4A8915FE7C3F20E8 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
+		1ED8B40518F73BB9BC95CEB9 /* ContentAccessoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentAccessoryViews.swift; sourceTree = "<group>"; };
 		259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMinimumSizeAccessor.swift; sourceTree = "<group>"; };
 		28FFA0155A76962CFF586288 /* QuickComposeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickComposeViews.swift; sourceTree = "<group>"; };
 		4DC7E0CFA8616D1ED8CF9C17 /* SplitViewBrowserTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SplitViewBrowserTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -54,7 +58,9 @@
 		B9A16A4A3DA6BF883F1FE0A8 /* WebPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPanelView.swift; sourceTree = "<group>"; };
 		BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptRepositoryView.swift; sourceTree = "<group>"; };
 		C4639BD2F3E53D3085D0EBD8 /* WebViewContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewContainer.swift; sourceTree = "<group>"; };
+		C52AD81A519C18B1992344AE /* WebViewHostFixCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewHostFixCatalog.swift; sourceTree = "<group>"; };
 		C5E899E351D0E9D11646B04D /* SplitViewBrowser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SplitViewBrowser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C5EA34CB3122363F5801F0C8 /* SettingsSupportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSupportViews.swift; sourceTree = "<group>"; };
 		D2255F149E9362E4EB507AEF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FAEE5CB48157C6C1A0147BAB /* SplitViewBrowserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitViewBrowserApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -85,13 +91,16 @@
 				70C8C9AE4C3C9840DF7A2F05 /* AppState.swift */,
 				909507865D1DF59B36DCD7DD /* Assets.xcassets */,
 				9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */,
+				1ED8B40518F73BB9BC95CEB9 /* ContentAccessoryViews.swift */,
 				D2255F149E9362E4EB507AEF /* ContentView.swift */,
 				BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */,
 				28FFA0155A76962CFF586288 /* QuickComposeViews.swift */,
+				C5EA34CB3122363F5801F0C8 /* SettingsSupportViews.swift */,
 				5BFDC1A3A6754EF4CD7E82F0 /* SettingsView.swift */,
 				FAEE5CB48157C6C1A0147BAB /* SplitViewBrowserApp.swift */,
 				B9A16A4A3DA6BF883F1FE0A8 /* WebPanelView.swift */,
 				C4639BD2F3E53D3085D0EBD8 /* WebViewContainer.swift */,
+				C52AD81A519C18B1992344AE /* WebViewHostFixCatalog.swift */,
 				93C34ADCBBE091505698D633 /* WebViewStore.swift */,
 				6ED9F6245A614C061D261539 /* WebViewStore+Scripts.swift */,
 				259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */,
@@ -213,13 +222,16 @@
 				852963F5E6FBF59450C8F79C /* AppLogger.swift in Sources */,
 				9E0A0C49E3EA88BD87E6CEDD /* AppState.swift in Sources */,
 				3425D98B58570407F5FEBC6F /* AutoCopySupport.swift in Sources */,
+				7F8FF3EBFD2FE568ABBCDF7C /* ContentAccessoryViews.swift in Sources */,
 				CD0ECB8B0447E4F1A83A3BBA /* ContentView.swift in Sources */,
 				950FB8CA1D86BC7909267838 /* PromptRepositoryView.swift in Sources */,
 				53F4352B3C16F56DB91644B1 /* QuickComposeViews.swift in Sources */,
+				55E2D22B7F6B51DBD2CACBB0 /* SettingsSupportViews.swift in Sources */,
 				B0F9932CF88E2A0583842287 /* SettingsView.swift in Sources */,
 				F44C12AC9E17A954A89239F4 /* SplitViewBrowserApp.swift in Sources */,
 				BDF2D5BF0746E9BFA7D37E79 /* WebPanelView.swift in Sources */,
 				B2F1A577D7CDF32AA5C721A5 /* WebViewContainer.swift in Sources */,
+				013CC8CA72373EA761A9E3D5 /* WebViewHostFixCatalog.swift in Sources */,
 				71828A17C07954BEAB1352B3 /* WebViewStore+Scripts.swift in Sources */,
 				7AD6BE47C7B513F50D7D170E /* WebViewStore.swift in Sources */,
 				4DB0D28AD8EA7F31F480E96F /* WindowMinimumSizeAccessor.swift in Sources */,
