@@ -1,14 +1,10 @@
-import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
     private enum SettingsCategory: String, CaseIterable, Identifiable {
         case general
         case customSites
-        case autoCopy
         case presets
-        case backup
         case diagnostics
 
         var id: String { rawValue }
@@ -19,12 +15,8 @@ struct SettingsView: View {
                 return "General"
             case .customSites:
                 return "Custom Sites"
-            case .autoCopy:
-                return "Auto Copy"
             case .presets:
                 return "Presets"
-            case .backup:
-                return "Backup / Restore"
             case .diagnostics:
                 return "Diagnostics"
             }
@@ -36,12 +28,8 @@ struct SettingsView: View {
                 return "slider.horizontal.3"
             case .customSites:
                 return "globe"
-            case .autoCopy:
-                return "doc.on.doc"
             case .presets:
                 return "square.grid.2x2"
-            case .backup:
-                return "externaldrive"
             case .diagnostics:
                 return "stethoscope"
             }
@@ -57,8 +45,6 @@ struct SettingsView: View {
     @State private var presetName = ""
     @State private var presetMessage = ""
     @State private var presetMessageIsError = false
-    @State private var backupMessage = ""
-    @State private var backupMessageIsError = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -157,12 +143,8 @@ struct SettingsView: View {
             twoPanelCrossSendSection
         case .customSites:
             customSitesSection
-        case .autoCopy:
-            autoCopyProfilesSection
         case .presets:
             presetsSection
-        case .backup:
-            backupSection
         case .diagnostics:
             diagnosticsSection
         }
@@ -271,15 +253,7 @@ struct SettingsView: View {
                             ForEach(appState.customServices) { service in
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 3) {
-                                        HStack(spacing: 6) {
-                                            Text(service.title)
-                                            Text(appState.autoCopyProfile(for: service).supportLevel.title)
-                                                .font(.caption2.weight(.semibold))
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-                                                .foregroundStyle(.secondary)
-                                        }
+                                        Text(service.title)
                                         Text(service.urlString)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -307,26 +281,6 @@ struct SettingsView: View {
             }
             .padding(.top, 4)
         }
-    }
-
-    private var autoCopyProfilesSection: some View {
-        GroupBox("Auto Copy Rules") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("서비스별 자동복사 지원 상태와 규칙을 조정할 수 있습니다. 미지원으로 두면 체크박스가 표시되더라도 동작하지 않습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                LazyVStack(spacing: 8) {
-                    ForEach(appState.services) { service in
-                        AutoCopyProfileEditorRow(service: service)
-                            .environmentObject(appState)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var presetsSection: some View {
@@ -384,37 +338,6 @@ struct SettingsView: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var backupSection: some View {
-        GroupBox("Backup / Restore") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Button("Export JSON") {
-                        exportBackupJSON()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("설정 백업 JSON 내보내기")
-
-                    Button("Import JSON") {
-                        importBackupJSON()
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("설정 백업 JSON 가져오기")
-                }
-
-                Text("패널 수, 서비스 선택, 프리셋, 커스텀 사이트, 프롬프트 저장소, 자동복사 설정, 2패널 교차 전송 설정을 백업/복원합니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if !backupMessage.isEmpty {
-                    Text(backupMessage)
-                        .font(.caption)
-                        .foregroundStyle(backupMessageIsError ? .red : .secondary)
-                }
-            }
-            .padding(.top, 4)
-        }
     }
 
     private var diagnosticsSection: some View {
@@ -532,45 +455,6 @@ struct SettingsView: View {
         presetMessageIsError = false
     }
 
-    private func exportBackupJSON() {
-        do {
-            let data = try appState.exportBackupData()
-            let panel = NSSavePanel()
-            panel.title = "Export SplitViewBrowser Backup"
-            panel.nameFieldStringValue = "SplitViewBrowser-Backup.json"
-            panel.allowedContentTypes = [.json]
-            panel.canCreateDirectories = true
-
-            guard panel.runModal() == .OK, let url = panel.url else { return }
-            try data.write(to: url, options: .atomic)
-            backupMessage = "Backup exported: \(url.lastPathComponent)"
-            backupMessageIsError = false
-        } catch {
-            backupMessage = error.localizedDescription
-            backupMessageIsError = true
-        }
-    }
-
-    private func importBackupJSON() {
-        let panel = NSOpenPanel()
-        panel.title = "Import SplitViewBrowser Backup"
-        panel.allowedContentTypes = [.json]
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        do {
-            let data = try Data(contentsOf: url)
-            try appState.importBackupData(data)
-            backupMessage = "Backup imported: \(url.lastPathComponent)"
-            backupMessageIsError = false
-        } catch {
-            backupMessage = error.localizedDescription
-            backupMessageIsError = true
-        }
-    }
 }
 
 private struct PresetEditorRow: View {

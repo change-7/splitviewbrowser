@@ -1,9 +1,26 @@
 import SwiftUI
 
+private enum ToolbarControlMetrics {
+    static let minHeight: CGFloat = 28
+}
+
+struct ToolbarChipPalette {
+    let foreground: Color
+    let fill: Color
+    let border: Color
+
+    static let neutral = ToolbarChipPalette(
+        foreground: Color.primary,
+        fill: Color(nsColor: .controlBackgroundColor),
+        border: Color.secondary.opacity(0.25)
+    )
+}
+
 struct ToolbarActionChipButton<Label: View>: View {
     let helpText: String
     let accessibilityLabel: String
     let isEnabled: Bool
+    let palette: ToolbarChipPalette
     let action: () -> Void
     @ViewBuilder let label: () -> Label
 
@@ -11,12 +28,14 @@ struct ToolbarActionChipButton<Label: View>: View {
         helpText: String,
         accessibilityLabel: String,
         isEnabled: Bool = true,
+        palette: ToolbarChipPalette = .neutral,
         action: @escaping () -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
         self.helpText = helpText
         self.accessibilityLabel = accessibilityLabel
         self.isEnabled = isEnabled
+        self.palette = palette
         self.action = action
         self.label = label
     }
@@ -24,20 +43,35 @@ struct ToolbarActionChipButton<Label: View>: View {
     var body: some View {
         Button(action: action) {
             label()
-                .foregroundStyle(Color.primary)
+                .foregroundStyle(isEnabled ? palette.foreground : palette.foreground.opacity(0.45))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                )
+                .frame(minHeight: ToolbarControlMetrics.minHeight)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .help(helpText)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+struct ToolbarIconBadgeButton: View {
+    let systemName: String
+    let helpText: String
+    let accessibilityLabel: String
+    let palette: ToolbarChipPalette
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.foreground)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .frame(minHeight: ToolbarControlMetrics.minHeight)
+        }
+        .buttonStyle(.plain)
         .help(helpText)
         .accessibilityLabel(accessibilityLabel)
     }

@@ -26,9 +26,6 @@ struct WebPanelView: View {
                 }
             }
 
-            Divider()
-
-            bottomAutoCopyBar
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
@@ -36,15 +33,10 @@ struct WebPanelView: View {
                 .stroke(panelBorderColor, lineWidth: panelBorderLineWidth)
         )
         .onAppear {
-            applyAutoCopyConfigurationForCurrentService()
             store.goHomeIfNeeded(service: service)
         }
         .onChange(of: service) { newService in
-            applyAutoCopyConfigurationForCurrentService(service: newService)
             store.goHome(service: newService)
-        }
-        .onChange(of: appState.autoCopyResolvedConfiguration(for: service)) { _ in
-            applyAutoCopyConfigurationForCurrentService()
         }
         .onChange(of: store.lastCopiedAssistantResponse?.id) { _ in
             collectDirectCopiedResponseIfAvailable()
@@ -71,8 +63,6 @@ struct WebPanelView: View {
                     .help("Loading")
                     .accessibilityLabel("로딩 중")
             }
-
-            autoCopySupportBadge
 
             Button(action: onSetAnalysisTarget) {
                 Image(systemName: "scope")
@@ -112,75 +102,12 @@ struct WebPanelView: View {
         .background(.bar)
     }
 
-    private var autoCopySupportBadge: some View {
-        Text(store.autoCopySupportLevel.title)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(autoCopySupportBadgeColor.opacity(0.18))
-            )
-            .foregroundStyle(autoCopySupportBadgeColor)
-            .help("자동복사 지원 상태")
-            .accessibilityLabel("자동복사 지원 상태: \(store.autoCopySupportLevel.title)")
-    }
-
-    private var autoCopySupportBadgeColor: Color {
-        switch store.autoCopySupportLevel {
-        case .supported:
-            return .green
-        case .limited:
-            return .orange
-        case .unsupported:
-            return .secondary
-        }
-    }
-
     private var panelBorderColor: Color {
         isAnalysisTarget ? Color.accentColor.opacity(0.95) : Color.secondary.opacity(0.25)
     }
 
     private var panelBorderLineWidth: CGFloat {
         isAnalysisTarget ? 2 : 1
-    }
-
-    private var bottomAutoCopyBar: some View {
-        HStack(spacing: 8) {
-            Spacer(minLength: 0)
-
-            Toggle("복사", isOn: copyOnSendBinding)
-                .toggleStyle(.checkbox)
-                .font(.caption2)
-                .labelsHidden()
-                .disabled(!store.isAutoCopySupported)
-                .accessibilityLabel("전송 시 자동복사")
-
-            Text("복사")
-                .font(.caption2)
-
-            Text(store.autoCopySupportLevel.title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Divider()
-                .frame(height: 12)
-
-            Button(action: onTriggerPageCopy) {
-                HStack(spacing: 4) {
-                    Image(systemName: "doc.on.doc")
-                    Text("복사")
-                }
-                .font(.caption2.weight(.semibold))
-            }
-            .buttonStyle(.borderless)
-            .help("이 패널의 최신 답변 복사 버튼 클릭")
-            .accessibilityLabel("이 패널 최신 답변 복사")
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 6)
-        .background(.regularMaterial)
     }
 
     private func runtimeIssueOverlay(_ issue: WebViewStore.RuntimeIssue) -> some View {
@@ -238,19 +165,6 @@ struct WebPanelView: View {
         )
         .shadow(radius: 6, y: 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var copyOnSendBinding: Binding<Bool> {
-        Binding(
-            get: { store.copyOnSendEnabled },
-            set: { store.setCopyOnSendEnabled($0) }
-        )
-    }
-
-    private func applyAutoCopyConfigurationForCurrentService(service currentService: AIService? = nil) {
-        let targetService = currentService ?? service
-        let config = appState.autoCopyResolvedConfiguration(for: targetService)
-        store.setAutoCopyConfiguration(config)
     }
 
     private func collectDirectCopiedResponseIfAvailable() {

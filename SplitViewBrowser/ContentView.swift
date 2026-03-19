@@ -17,8 +17,6 @@ private enum TwoPanelCrossSendDirection: Hashable {
 }
 
 struct ContentView: View {
-    private static let defaultAnalysisPromptSelectionTag = "__default_analysis_prompt__"
-
     @EnvironmentObject private var appState: AppState
     @State private var isPromptRepositoryPresented = false
     @State private var isSettingsPresented = false
@@ -51,141 +49,7 @@ struct ContentView: View {
         )
         .frame(minWidth: minimumWindowSize.width, minHeight: minimumWindowSize.height)
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Picker("패널 수", selection: panelCountBinding) {
-                    ForEach(AppState.minPanels ... AppState.maxPanels, id: \.self) { count in
-                        Text("\(count)개").tag(count)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 86)
-                .help("Panel Count")
-                .accessibilityLabel("패널 개수 선택")
-            }
-            ToolbarItem(placement: .automatic) {
-                HStack(spacing: 6) {
-                    presetSelectionButton(
-                        title: toolbarNonePresetTitle,
-                        isSelected: appState.activePresetID == nil,
-                        help: appState.activePresetID == nil ? "현재 선택됨: 프리셋 미선택" : "프리셋 미선택"
-                    ) {
-                        clearPresetSelectionFromToolbar()
-                    }
-
-                    ForEach(appState.presets, id: \ViewPreset.id) { (preset: ViewPreset) in
-                        presetSelectionButton(
-                            title: toolbarPresetTitle(for: preset),
-                            isSelected: appState.activePresetID == preset.id,
-                            help: appState.activePresetID == preset.id ? "현재 선택됨: \(preset.name)" : preset.name
-                        ) {
-                            applyPresetFromToolbar(preset)
-                        }
-                    }
-
-                    Button {
-                        addPresetFromToolbar()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("현재 창 상태를 프리셋으로 저장")
-                    .accessibilityLabel("현재 상태를 프리셋으로 저장")
-                }
-            }
-
-            ToolbarItem(placement: .automatic) {
-                HStack(spacing: 6) {
-                    Menu {
-                        ForEach(0 ..< appState.panelCount, id: \.self) { index in
-                            Button("분석 \(index + 1)") {
-                                selectAnalysisTargetPanel(index)
-                            }
-                        }
-                    } label: {
-                        toolbarChipLabel(title: "분석 \(appState.analysisTargetPanelIndex + 1)", width: 92, showsChevron: true)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .buttonStyle(.plain)
-                    .help("수집한 답변을 보낼 분석/정리 담당 패널")
-                    .accessibilityLabel("분석 대상 패널 선택")
-
-                    Menu {
-                        Button("기본(내장)") {
-                            appState.setSelectedAnalysisPromptID(nil)
-                        }
-                        ForEach(appState.savedPrompts, id: \SavedPrompt.id) { prompt in
-                            Button(prompt.title) {
-                                appState.setSelectedAnalysisPromptID(prompt.id)
-                            }
-                        }
-                    } label: {
-                        toolbarChipLabel(title: analysisPromptToolbarTitle, width: 128, showsChevron: true)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .buttonStyle(.plain)
-                    .help("전송 시 앞부분에 고정으로 붙일 프롬프트 선택")
-                    .accessibilityLabel("전송 기본 프롬프트 선택")
-
-                    ToolbarActionChipButton(
-                        helpText: "현재 보이는 모든 패널을 각 서비스 홈으로 이동",
-                        accessibilityLabel: "전체 패널 홈 이동",
-                        action: {
-                            goHomeForAllVisiblePanels()
-                        }
-                    ) {
-                        Text("전체 홈")
-                    }
-
-                    ToolbarActionChipButton(
-                        helpText: "분석 대상 패널을 제외한 현재 보이는 모든 패널에서 최신 답변 복사 버튼 클릭",
-                        accessibilityLabel: "전체 패널 최신 답변 복사",
-                        action: {
-                            triggerPageCopyForAllVisiblePanels()
-                        }
-                    ) {
-                        Text("전체 복사")
-                    }
-
-                    ToolbarActionChipButton(
-                        helpText: "현재 보이는 패널의 수집 답변 비우기",
-                        accessibilityLabel: "수집 답변 비우기",
-                        isEnabled: appState.visibleCollectedResponseCount > 0,
-                        action: {
-                            appState.clearCollectedResponsesForVisiblePanels()
-                            setCollectionStatus("수집 답변 비움", isError: false)
-                        }
-                    ) {
-                        Image(systemName: "trash")
-                    }
-                }
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    isSettingsPresented = false
-                    isPromptRepositoryPresented.toggle()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .help("Prompt Repository")
-                .accessibilityLabel("프롬프트 저장소 열기")
-                .popover(isPresented: $isPromptRepositoryPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                    PromptRepositoryView()
-                        .frame(minWidth: 680, minHeight: 700)
-                }
-            }
-
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    isPromptRepositoryPresented = false
-                    isSettingsPresented = false
-                    isQuickComposePresented = true
-                } label: {
-                    Image(systemName: "paperplane.circle")
-                }
-                .help("동시 입력/전송")
-                .accessibilityLabel("동시 입력 전송 열기")
-            }
+            topToolbarContent
         }
         .overlay(alignment: .topTrailing) {
             if !collectionStatusMessage.isEmpty {
@@ -245,6 +109,150 @@ struct ContentView: View {
             get: { appState.panelCount },
             set: { appState.setPanelCount($0) }
         )
+    }
+
+    @ToolbarContentBuilder
+    private var topToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            ToolbarIconBadgeButton(
+                systemName: "house",
+                helpText: "현재 보이는 모든 패널을 각 서비스 홈으로 이동",
+                accessibilityLabel: "전체 패널 홈 이동",
+                palette: .neutral,
+                action: {
+                    goHomeForAllVisiblePanels()
+                }
+            )
+        }
+        ToolbarItem(placement: .navigation) {
+            Picker("패널 수", selection: panelCountBinding) {
+                ForEach(AppState.minPanels ... AppState.maxPanels, id: \.self) { count in
+                    Text("\(count)개").tag(count)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 86)
+            .help("Panel Count")
+            .accessibilityLabel("패널 개수 선택")
+        }
+        ToolbarItem(placement: .navigation) {
+            presetToolbarGroupView
+        }
+        ToolbarItem(placement: .navigation) {
+            ToolbarActionChipButton(
+                helpText: "분석 대상 패널을 제외한 현재 보이는 모든 패널에서 최신 답변 복사 버튼 클릭",
+                accessibilityLabel: "전체 패널 최신 답변 복사",
+                palette: .neutral,
+                action: {
+                    triggerPageCopyForAllVisiblePanels()
+                }
+            ) {
+                Text("전체 복사")
+            }
+        }
+        ToolbarItem(placement: .navigation) {
+            ToolbarIconBadgeButton(
+                systemName: "square.and.pencil",
+                helpText: "Prompt Repository",
+                accessibilityLabel: "프롬프트 저장소 열기",
+                palette: .neutral,
+                action: {
+                    isQuickComposePresented = false
+                    isSettingsPresented = false
+                    isPromptRepositoryPresented.toggle()
+                }
+            )
+            .popover(isPresented: $isPromptRepositoryPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                PromptRepositoryView()
+                    .frame(minWidth: 680, minHeight: 700)
+            }
+        }
+        ToolbarItem(placement: .navigation) {
+            ToolbarIconBadgeButton(
+                systemName: "paperplane.circle",
+                helpText: "동시 입력/전송",
+                accessibilityLabel: "동시 입력 전송 열기",
+                palette: .neutral,
+                action: {
+                    isPromptRepositoryPresented = false
+                    isSettingsPresented = false
+                    isQuickComposePresented = true
+                }
+            )
+        }
+        ToolbarItem(placement: .navigation) {
+            ToolbarActionChipButton(
+                helpText: "현재 보이는 패널의 수집 답변 비우기",
+                accessibilityLabel: "수집 답변 비우기",
+                isEnabled: appState.visibleCollectedResponseCount > 0,
+                palette: .neutral,
+                action: {
+                    appState.clearCollectedResponsesForVisiblePanels()
+                    setCollectionStatus("수집 답변 비움", isError: false)
+                }
+            ) {
+                Image(systemName: "trash")
+            }
+        }
+    }
+
+    private var presetToolbarGroupView: some View {
+        HStack(spacing: 4) {
+            toolbarPresetButton(
+                title: toolbarNonePresetTitle,
+                isSelected: appState.activePresetID == nil,
+                helpText: appState.activePresetID == nil ? "현재 선택됨: 프리셋 미선택" : "프리셋 미선택",
+                action: clearPresetSelectionFromToolbar
+            )
+
+            ForEach(appState.presets, id: \ViewPreset.id) { (preset: ViewPreset) in
+                toolbarPresetButton(
+                    title: toolbarPresetTitle(for: preset),
+                    isSelected: appState.activePresetID == preset.id,
+                    helpText: appState.activePresetID == preset.id ? "현재 선택됨: \(preset.name)" : preset.name,
+                    action: { applyPresetFromToolbar(preset) }
+                )
+            }
+
+            toolbarAddPresetButton
+                .padding(.leading, -2)
+        }
+    }
+
+    private func toolbarPresetButton(
+        title: String,
+        isSelected: Bool,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(minHeight: 24)
+                .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.85))
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .accessibilityLabel(helpText)
+    }
+
+    private var toolbarAddPresetButton: some View {
+        Button {
+            addPresetFromToolbar()
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(minHeight: 24)
+        }
+        .buttonStyle(.plain)
+        .help("현재 창 상태를 프리셋으로 저장")
+        .accessibilityLabel("현재 상태를 프리셋으로 저장")
     }
 
     private func serviceBinding(for index: Int) -> Binding<AIService> {
@@ -718,63 +726,28 @@ struct ContentView: View {
         appState.activePresetID == nil ? "없음 ✓" : "없음"
     }
 
-    private var analysisPromptToolbarTitle: String {
-        appState.selectedAnalysisPromptDisplayTitle
-    }
-
-    private func presetSelectionButton(
+    private func presetSelectionLabel(
         title: String,
-        isSelected: Bool,
-        help: String,
-        action: @escaping () -> Void
+        isSelected: Bool
     ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .foregroundStyle(Color.primary)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(
-                            isSelected ? Color.secondary.opacity(0.55) : Color.secondary.opacity(0.25),
-                            lineWidth: 1
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .accessibilityLabel(help)
-    }
-
-    private func toolbarChipLabel(title: String, width: CGFloat, showsChevron: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-            if showsChevron {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: width)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .foregroundStyle(Color.primary)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-        )
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(minHeight: 28)
+            .foregroundStyle(Color.primary)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(
+                        isSelected ? Color.secondary.opacity(0.45) : Color.secondary.opacity(0.25),
+                        lineWidth: 1
+                    )
+            )
     }
 
 }

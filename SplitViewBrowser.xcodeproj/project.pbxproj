@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		013CC8CA72373EA761A9E3D5 /* WebViewHostFixCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C52AD81A519C18B1992344AE /* WebViewHostFixCatalog.swift */; };
 		16396CD96DF585EB9A94D7E3 /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66028AAB645A6F1E719CEEDB /* AppStateTests.swift */; };
-		3425D98B58570407F5FEBC6F /* AutoCopySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */; };
+		1E23E4CB2FDA40CA23242DE5 /* ComposerAutomationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E7804D438B61C977C50201 /* ComposerAutomationSupport.swift */; };
 		4DB0D28AD8EA7F31F480E96F /* WindowMinimumSizeAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */; };
 		53F4352B3C16F56DB91644B1 /* QuickComposeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FFA0155A76962CFF586288 /* QuickComposeViews.swift */; };
 		55E2D22B7F6B51DBD2CACBB0 /* SettingsSupportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5EA34CB3122363F5801F0C8 /* SettingsSupportViews.swift */; };
@@ -45,6 +45,7 @@
 		1ED8B40518F73BB9BC95CEB9 /* ContentAccessoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentAccessoryViews.swift; sourceTree = "<group>"; };
 		259CA5459DC2F7635813CA21 /* WindowMinimumSizeAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMinimumSizeAccessor.swift; sourceTree = "<group>"; };
 		28FFA0155A76962CFF586288 /* QuickComposeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickComposeViews.swift; sourceTree = "<group>"; };
+		38E7804D438B61C977C50201 /* ComposerAutomationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerAutomationSupport.swift; sourceTree = "<group>"; };
 		4DC7E0CFA8616D1ED8CF9C17 /* SplitViewBrowserTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SplitViewBrowserTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BFDC1A3A6754EF4CD7E82F0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		66028AAB645A6F1E719CEEDB /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
@@ -54,7 +55,6 @@
 		909507865D1DF59B36DCD7DD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		93C34ADCBBE091505698D633 /* WebViewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewStore.swift; sourceTree = "<group>"; };
 		9BD586502D99727960D93A95 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
-		9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoCopySupport.swift; sourceTree = "<group>"; };
 		B9A16A4A3DA6BF883F1FE0A8 /* WebPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebPanelView.swift; sourceTree = "<group>"; };
 		BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptRepositoryView.swift; sourceTree = "<group>"; };
 		C4639BD2F3E53D3085D0EBD8 /* WebViewContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewContainer.swift; sourceTree = "<group>"; };
@@ -90,7 +90,7 @@
 				19706D2BA865D3779CBDEFA8 /* AppLogger.swift */,
 				70C8C9AE4C3C9840DF7A2F05 /* AppState.swift */,
 				909507865D1DF59B36DCD7DD /* Assets.xcassets */,
-				9BF0AA536FA0081BA76D7ECA /* AutoCopySupport.swift */,
+				38E7804D438B61C977C50201 /* ComposerAutomationSupport.swift */,
 				1ED8B40518F73BB9BC95CEB9 /* ContentAccessoryViews.swift */,
 				D2255F149E9362E4EB507AEF /* ContentView.swift */,
 				BDDF2B46F19B0DD0EBE61A0E /* PromptRepositoryView.swift */,
@@ -221,7 +221,7 @@
 				DF5E310384282C9FBF77CBB3 /* AIService.swift in Sources */,
 				852963F5E6FBF59450C8F79C /* AppLogger.swift in Sources */,
 				9E0A0C49E3EA88BD87E6CEDD /* AppState.swift in Sources */,
-				3425D98B58570407F5FEBC6F /* AutoCopySupport.swift in Sources */,
+				1E23E4CB2FDA40CA23242DE5 /* ComposerAutomationSupport.swift in Sources */,
 				7F8FF3EBFD2FE568ABBCDF7C /* ContentAccessoryViews.swift in Sources */,
 				CD0ECB8B0447E4F1A83A3BBA /* ContentView.swift in Sources */,
 				950FB8CA1D86BC7909267838 /* PromptRepositoryView.swift in Sources */,

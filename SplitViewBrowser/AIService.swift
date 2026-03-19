@@ -36,6 +36,29 @@ struct AIService: Identifiable, Codable, Hashable {
         URL(string: urlString) ?? URL(string: "https://chatgpt.com/")!
     }
 
+    var trustedHostSuffixes: [String] {
+        switch id {
+        case AIService.chatGPT.id:
+            return ["chatgpt.com", "openai.com"]
+        case AIService.gemini.id:
+            return ["gemini.google.com", "google.com"]
+        case AIService.perplexity.id:
+            return ["perplexity.ai"]
+        case AIService.grok.id:
+            return ["grok.com", "x.ai", "x.com"]
+        default:
+            guard let host = homeURL.host?.lowercased(), !host.isEmpty else { return [] }
+            return [host]
+        }
+    }
+
+    func trustsHost(_ host: String) -> Bool {
+        let normalizedHost = host.lowercased()
+        return trustedHostSuffixes.contains { suffix in
+            normalizedHost == suffix || normalizedHost.hasSuffix(".\(suffix)")
+        }
+    }
+
     static func defaultPanelServiceIDs(count: Int) -> [String] {
         guard count > 0, !builtInServices.isEmpty else { return [] }
         return (0 ..< count).map { index in

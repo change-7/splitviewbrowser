@@ -109,21 +109,6 @@ struct CollectedPanelResponse: Identifiable, Hashable {
     let capturedAt: Date
 }
 
-struct AppBackupPayload: Codable {
-    var version: Int
-    var exportedAt: Date
-    var panelCount: Int
-    var panelServiceIDs: [String]
-    var customServices: [AIService]
-    var presets: [ViewPreset]
-    var activePresetID: String?
-    var savedPrompts: [SavedPrompt]
-    var selectedAnalysisPromptID: String?
-    var webViewRetentionMode: WebViewRetentionMode
-    var autoCopyProfiles: [String: AutoCopySiteProfile]
-    var twoPanelCrossSendEnabled: Bool?
-}
-
 enum WebViewRetentionMode: String, CaseIterable, Codable, Identifiable {
     case aggressive
     case balanced
@@ -212,20 +197,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    enum BackupValidationError: LocalizedError {
-        case encodeFailed
-        case decodeFailed
-
-        var errorDescription: String? {
-            switch self {
-            case .encodeFailed:
-                return "Failed to create backup data."
-            case .decodeFailed:
-                return "Failed to read backup file."
-            }
-        }
-    }
-
     private enum DefaultsKey {
         static let panelCount = "panelCount"
         static let panelServices = "panelServices"
@@ -235,7 +206,6 @@ final class AppState: ObservableObject {
         static let selectedAnalysisPromptID = "selectedAnalysisPromptID"
         static let activePresetID = "activePresetID"
         static let webViewRetentionMode = "webViewRetentionMode"
-        static let autoCopyProfiles = "autoCopyProfiles"
         static let twoPanelCrossSendEnabled = "twoPanelCrossSendEnabled"
     }
 
@@ -250,7 +220,6 @@ final class AppState: ObservableObject {
     @Published private(set) var activePresetID: String?
     @Published private(set) var savedPrompts: [SavedPrompt]
     @Published private(set) var webViewRetentionMode: WebViewRetentionMode
-    @Published private(set) var autoCopyProfiles: [String: AutoCopySiteProfile]
     @Published private(set) var isTwoPanelCrossSendEnabled: Bool
     @Published private(set) var pendingPresetWindowSize: CGSize?
     private(set) var isAppActive: Bool
@@ -286,7 +255,6 @@ final class AppState: ObservableObject {
         savedPrompts = Self.restoreSavedPrompts(from: defaults)
         selectedAnalysisPromptID = Self.restoreSelectedAnalysisPromptID(from: defaults)
         webViewRetentionMode = Self.restoreWebViewRetentionMode(from: defaults)
-        autoCopyProfiles = Self.restoreAutoCopyProfiles(from: defaults)
         isTwoPanelCrossSendEnabled = Self.restoreTwoPanelCrossSendEnabled(from: defaults)
         pendingPresetWindowSize = nil
         isAppActive = NSApp?.isActive ?? true
@@ -743,89 +711,6 @@ final class AppState: ObservableObject {
         return newStore
     }
 
-    func autoCopyResolvedConfiguration(for service: AIService) -> AutoCopyResolvedConfiguration {
-        let defaultConfig = AutoCopyCatalog.defaultConfiguration(for: service)
-        guard let profile = autoCopyProfiles[service.id] else {
-            return defaultConfig
-        }
-        return profile.resolved(over: defaultConfig.rule)
-    }
-
-    func autoCopyProfile(for service: AIService) -> AutoCopySiteProfile {
-        autoCopyProfiles[service.id] ?? AutoCopyCatalog.defaultProfile(for: service)
-    }
-
-    func updateAutoCopyProfile(for serviceID: String, profile: AutoCopySiteProfile) {
-        autoCopyProfiles[serviceID] = profile
-        persistAutoCopyProfiles()
-        logger.log(.info, category: "AutoCopy", "Updated profile for \(serviceID) to \(profile.supportLevel.rawValue)")
-    }
-
-    func resetAutoCopyProfile(for serviceID: String) {
-        autoCopyProfiles.removeValue(forKey: serviceID)
-        persistAutoCopyProfiles()
-        logger.log(.info, category: "AutoCopy", "Reset profile for \(serviceID)")
-    }
-
-    func exportBackupData() throws -> Data {
-        let payload = AppBackupPayload(
-            version: 1,
-            exportedAt: Date(),
-            panelCount: panelCount,
-            panelServiceIDs: panelServiceIDs,
-            customServices: customServices,
-            presets: presets,
-            activePresetID: activePresetID,
-            savedPrompts: savedPrompts,
-            selectedAnalysisPromptID: selectedAnalysisPromptID,
-            webViewRetentionMode: webViewRetentionMode,
-            autoCopyProfiles: autoCopyProfiles,
-            twoPanelCrossSendEnabled: isTwoPanelCrossSendEnabled
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(payload) else {
-            throw BackupValidationError.encodeFailed
-        }
-        logger.log(.info, category: "Backup", "Exported backup payload")
-        return data
-    }
-
-    func importBackupData(_ data: Data) throws {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let payload = try? decoder.decode(AppBackupPayload.self, from: data) else {
-            throw BackupValidationError.decodeFailed
-        }
-
-        let restoredServices = AIService.builtInServices + payload.customServices.filter { !$0.isBuiltIn }
-        services = restoredServices
-        rebuildServiceIndex()
-
-        let previousPanelCount = panelCount
-        let clampedPanelCount = Self.clampPanelCount(payload.panelCount)
-        panelCount = clampedPanelCount
-        panelServiceIDs = normalizedServiceIDs(from: payload.panelServiceIDs)
-        presets = payload.presets
-        activePresetID = payload.activePresetID
-        savedPrompts = payload.savedPrompts
-        rebuildSavedPromptIndex()
-        selectedAnalysisPromptID = payload.selectedAnalysisPromptID
-        webViewRetentionMode = payload.webViewRetentionMode
-        autoCopyProfiles = payload.autoCopyProfiles
-        isTwoPanelCrossSendEnabled = payload.twoPanelCrossSendEnabled ?? false
-        pruneCollectedResponsesToVisiblePanels()
-        normalizeAnalysisTargetPanelIndex()
-        reconcileWebViewStores(afterPanelCountChangeFrom: previousPanelCount, to: panelCount)
-
-        normalizeRestoredStateAndPersistIfNeeded(
-            forcePersist: payload.panelCount != clampedPanelCount,
-            cancelPendingWrites: true
-        )
-        logger.log(.info, category: "Backup", "Imported backup payload")
-    }
-
     func addCustomService(title: String, urlString: String) throws {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
@@ -846,8 +731,6 @@ final class AppState: ObservableObject {
         services.append(service)
         rebuildServiceIndex()
         persistCustomServices()
-        autoCopyProfiles[service.id] = AutoCopyCatalog.defaultProfile(for: service)
-        persistAutoCopyProfiles()
         logger.log(.info, category: "Service", "Added custom service \(service.title)")
     }
 
@@ -860,8 +743,6 @@ final class AppState: ObservableObject {
         services.removeAll(where: { $0.id == id })
         rebuildServiceIndex()
         persistCustomServices()
-        autoCopyProfiles.removeValue(forKey: id)
-        persistAutoCopyProfiles()
         normalizePanelSelectionsAndPersistIfNeeded()
         normalizePresetsAndPersistIfNeeded()
         clearActivePresetIfNoLongerMatchingCurrentState()
@@ -943,14 +824,6 @@ final class AppState: ObservableObject {
         return mode
     }
 
-    private static func restoreAutoCopyProfiles(from defaults: UserDefaults) -> [String: AutoCopySiteProfile] {
-        guard let data = defaults.data(forKey: DefaultsKey.autoCopyProfiles),
-              let decoded = try? JSONDecoder().decode([String: AutoCopySiteProfile].self, from: data) else {
-            return [:]
-        }
-        return decoded
-    }
-
     private static func restoreTwoPanelCrossSendEnabled(from defaults: UserDefaults) -> Bool {
         defaults.object(forKey: DefaultsKey.twoPanelCrossSendEnabled) as? Bool ?? false
     }
@@ -966,7 +839,6 @@ final class AppState: ObservableObject {
         shouldPersist = clearActivePresetIfNoLongerMatchingCurrentState(persist: false) || shouldPersist
         shouldPersist = normalizeSavedPromptsAndPersistIfNeeded(persist: false) || shouldPersist
         shouldPersist = normalizeSelectedAnalysisPromptAndPersistIfNeeded(persist: false) || shouldPersist
-        shouldPersist = normalizeAutoCopyProfilesAndPersistIfNeeded(persist: false) || shouldPersist
 
         guard shouldPersist else { return }
         if cancelPendingWrites {
@@ -1138,18 +1010,6 @@ final class AppState: ObservableObject {
             return true
         }
         return false
-    }
-
-    @discardableResult
-    private func normalizeAutoCopyProfilesAndPersistIfNeeded(persist: Bool = true) -> Bool {
-        let validServiceIDs = Set(services.map(\.id))
-        let normalized = autoCopyProfiles.filter { validServiceIDs.contains($0.key) }
-        guard normalized != autoCopyProfiles else { return false }
-        autoCopyProfiles = normalized
-        if persist {
-            persistAutoCopyProfiles()
-        }
-        return true
     }
 
     private func normalizeAnalysisTargetPanelIndex() {
@@ -1454,11 +1314,6 @@ final class AppState: ObservableObject {
         defaults.set(webViewRetentionMode.rawValue, forKey: DefaultsKey.webViewRetentionMode)
     }
 
-    private func writeAutoCopyProfilesToDefaults() {
-        guard let data = encodedData(autoCopyProfiles) else { return }
-        defaults.set(data, forKey: DefaultsKey.autoCopyProfiles)
-    }
-
     private func writeTwoPanelCrossSendEnabledToDefaults() {
         defaults.set(isTwoPanelCrossSendEnabled, forKey: DefaultsKey.twoPanelCrossSendEnabled)
     }
@@ -1472,7 +1327,6 @@ final class AppState: ObservableObject {
         writeCustomServicesToDefaults()
         writeActivePresetIDToDefaults()
         writeWebViewRetentionModeToDefaults()
-        writeAutoCopyProfilesToDefaults()
         writeTwoPanelCrossSendEnabledToDefaults()
     }
 
@@ -1528,12 +1382,6 @@ final class AppState: ObservableObject {
     private func persistSelectedAnalysisPromptID() {
         scheduleDefaultsWrite(key: DefaultsKey.selectedAnalysisPromptID) { [weak self] in
             self?.writeSelectedAnalysisPromptIDToDefaults()
-        }
-    }
-
-    private func persistAutoCopyProfiles() {
-        scheduleDefaultsWrite(key: DefaultsKey.autoCopyProfiles) { [weak self] in
-            self?.writeAutoCopyProfilesToDefaults()
         }
     }
 

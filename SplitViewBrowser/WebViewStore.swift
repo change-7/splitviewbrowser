@@ -4,7 +4,6 @@ import WebKit
 
 @MainActor
 final class WebViewStore: NSObject, ObservableObject {
-    static let copyOnSendMessageName = "splitViewCopyOnSend"
     static let answerCopyCaptureMessageName = "splitViewAnswerCopyCapture"
     private static let sharedWebsiteDataStore = WKWebsiteDataStore.default()
 
@@ -20,12 +19,6 @@ final class WebViewStore: NSObject, ObservableObject {
         let message: String
         let urlString: String?
         let isRecoverable: Bool
-    }
-
-    private struct AutoCopyPagePayload: Codable {
-        var enabled: Bool
-        var supportLevel: AutoCopySupportLevel
-        var rule: AutoCopyRule?
     }
 
     struct ComposerSendResult: Hashable {
@@ -60,28 +53,19 @@ final class WebViewStore: NSObject, ObservableObject {
 
     let webView: WKWebView
 
-    @Published private(set) var copyOnSendEnabled = true
     @Published private(set) var currentURLString = ""
     @Published private(set) var isLoadingPage = false
     @Published private(set) var runtimeIssue: RuntimeIssue?
-    @Published private(set) var autoCopySupportLevel: AutoCopySupportLevel = .unsupported
     @Published private(set) var lastCopiedAssistantResponse: AssistantCopiedResponse?
-
-    var isAutoCopySupported: Bool {
-        autoCopySupportLevel != .unsupported
-    }
 
     private var hasLoadedHome = false
     private var observations: [NSKeyValueObservation] = []
     private let navigationProxy = NavigationProxy()
-    private let copyOnSendBridge = CopyOnSendBridge()
     private let answerCopyCaptureBridge = AnswerCopyCaptureBridge()
     private let logger = AppLogger.shared
     private var hasPreparedForRelease = false
-    private var autoCopyConfiguration = AutoCopyResolvedConfiguration(supportLevel: .unsupported, rule: nil)
     private var currentService: AIService?
     private var lastComposerSendThrottle: ComposerSendThrottle?
-    private var lastAppliedAutoCopyPayloadSignature: String?
     private weak var cachedEmbeddedScrollView: NSScrollView?
 
     override init() {
@@ -96,12 +80,6 @@ final class WebViewStore: NSObject, ObservableObject {
 
         configureWebViewScrollBehavior()
 
-        copyOnSendBridge.handleText = { text in
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(trimmed, forType: .string)
-        }
         answerCopyCaptureBridge.handlePayload = { [weak self] payloadJSON in
             guard let self else { return }
             struct Payload: Decodable {
@@ -139,11 +117,10 @@ final class WebViewStore: NSObject, ObservableObject {
             }
         }
 
-        contentController.add(copyOnSendBridge, name: Self.copyOnSendMessageName)
         contentController.add(answerCopyCaptureBridge, name: Self.answerCopyCaptureMessageName)
         contentController.addUserScript(
             WKUserScript(
-                source: Self.copyOnSendScriptSource,
+                source: Self.answerCopyCaptureScriptSource,
                 injectionTime: .atDocumentEnd,
                 forMainFrameOnly: true
             )
@@ -152,12 +129,17 @@ final class WebViewStore: NSObject, ObservableObject {
         navigationProxy.openExternal = { url in
             NSWorkspace.shared.open(url)
         }
+        navigationProxy.shouldAllowInAppNavigation = { [weak self] url, navigationAction in
+            self?.shouldAllowInAppNavigation(to: url, navigationAction: navigationAction) ?? false
+        }
+        navigationProxy.canOpenExternally = { url in
+            Self.canOpenExternally(url)
+        }
         navigationProxy.didStartNavigation = { [weak self] url in
             guard let self else { return }
             self.isLoadingPage = true
             self.runtimeIssue = nil
             self.currentURLString = url?.absoluteString ?? self.currentURLString
-            self.lastAppliedAutoCopyPayloadSignature = nil
         }
         navigationProxy.didCommitNavigation = { [weak self] url in
             guard let self else { return }
@@ -169,7 +151,6 @@ final class WebViewStore: NSObject, ObservableObject {
             self.runtimeIssue = nil
             self.configureWebViewScrollBehavior()
             self.applyHostLayoutFixes()
-            self.syncAutoCopySettingsToPage()
         }
         navigationProxy.didFailNavigation = { [weak self] url, error in
             self?.handleNavigationError(url: url, error: error)
@@ -182,6 +163,35 @@ final class WebViewStore: NSObject, ObservableObject {
         webView.uiDelegate = navigationProxy
 
         observeNavigationState()
+    }
+
+    private static func canOpenExternally(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        switch scheme {
+        case "http", "https", "mailto", "tel":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shouldAllowInAppNavigation(to url: URL, navigationAction: WKNavigationAction) -> Bool {
+        if url.scheme?.lowercased() == "about" {
+            return true
+        }
+
+        switch navigationAction.navigationType {
+        case .backForward, .reload:
+            return true
+        default:
+            break
+        }
+
+        guard let host = url.host?.lowercased(), let currentService else {
+            return false
+        }
+
+        return currentService.trustsHost(host)
     }
 
     private func publishCopiedAssistantResponse(text: String, urlString: String?, source: String) {
@@ -239,6 +249,11 @@ final class WebViewStore: NSObject, ObservableObject {
         return String(data: data, encoding: .utf8)
     }
 
+    private var currentComposerAutomationRule: ComposerAutomationRule? {
+        guard let currentService else { return nil }
+        return ComposerAutomationCatalog.defaultRule(for: currentService)
+    }
+
     func goHomeIfNeeded(service: AIService) {
         guard !hasLoadedHome else { return }
         goHome(service: service)
@@ -275,25 +290,10 @@ final class WebViewStore: NSObject, ObservableObject {
         runtimeIssue = nil
     }
 
-    func setAutoCopyConfiguration(_ configuration: AutoCopyResolvedConfiguration) {
-        guard autoCopyConfiguration != configuration else { return }
-        autoCopyConfiguration = configuration
-        autoCopySupportLevel = configuration.supportLevel
-        syncAutoCopySettingsToPage()
-    }
-
-    func setCopyOnSendEnabled(_ enabled: Bool) {
-        guard copyOnSendEnabled != enabled else { return }
-        copyOnSendEnabled = enabled
-        syncAutoCopySettingsToPage()
-    }
-
     func prepareForRelease() {
         guard !hasPreparedForRelease else { return }
         hasPreparedForRelease = true
-        lastAppliedAutoCopyPayloadSignature = nil
         cachedEmbeddedScrollView = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.copyOnSendMessageName)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.answerCopyCaptureMessageName)
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -330,10 +330,10 @@ final class WebViewStore: NSObject, ObservableObject {
 
     func prepareComposerForInput(completion: @escaping (Result<ComposerPrepareResult, Error>) -> Void) {
         struct PreparePayload: Encodable {
-            let rule: AutoCopyRule?
+            let rule: ComposerAutomationRule?
         }
 
-        let payload = PreparePayload(rule: autoCopyConfiguration.rule)
+        let payload = PreparePayload(rule: currentComposerAutomationRule)
         guard let json = Self.encodePayloadJSONString(payload) else {
             let error = NSError(
                 domain: "SplitViewBrowser.WebViewStore",
@@ -558,10 +558,10 @@ final class WebViewStore: NSObject, ObservableObject {
         struct InjectPayload: Encodable {
             let text: String?
             let submit: Bool
-            let rule: AutoCopyRule?
+            let rule: ComposerAutomationRule?
         }
 
-        let payload = InjectPayload(text: text, submit: submit, rule: autoCopyConfiguration.rule)
+        let payload = InjectPayload(text: text, submit: submit, rule: currentComposerAutomationRule)
         guard let json = Self.encodePayloadJSONString(payload) else {
             let error = NSError(
                 domain: "SplitViewBrowser.WebViewStore",
@@ -817,46 +817,12 @@ final class WebViewStore: NSObject, ObservableObject {
         }
     }
 
-    private func syncAutoCopySettingsToPage() {
-        let host = webView.url?.host ?? ""
-        guard !host.isEmpty else { return }
-
-        let payload = AutoCopyPagePayload(
-            enabled: copyOnSendEnabled,
-            supportLevel: autoCopyConfiguration.supportLevel,
-            rule: autoCopyConfiguration.rule
-        )
-        guard let json = Self.encodePayloadJSONString(payload) else {
-            return
-        }
-
-        let signature = "\(host)|\(json)"
-        guard lastAppliedAutoCopyPayloadSignature != signature else { return }
-        lastAppliedAutoCopyPayloadSignature = signature
-
-        let js = """
-        (() => {
-          const payload = \(json);
-          try {
-            localStorage.setItem("split-view-copy-on-send-enabled:" + location.hostname, payload.enabled ? "1" : "0");
-          } catch (_) {}
-          if (typeof window.__splitViewApplyAutoCopyConfig === "function") {
-            window.__splitViewApplyAutoCopyConfig(payload);
-          }
-        })();
-        """
-        webView.evaluateJavaScript(js) { [weak self] _, error in
-            guard error != nil else { return }
-            Task { @MainActor [weak self] in
-                self?.lastAppliedAutoCopyPayloadSignature = nil
-            }
-        }
-    }
-
 }
 
 private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegate {
     var openExternal: ((URL) -> Void)?
+    var shouldAllowInAppNavigation: ((URL, WKNavigationAction) -> Bool)?
+    var canOpenExternally: ((URL) -> Bool)?
     var didStartNavigation: ((URL?) -> Void)?
     var didCommitNavigation: ((URL?) -> Void)?
     var didFinishNavigation: (() -> Void)?
@@ -873,17 +839,18 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
             return
         }
 
-        let shouldOpenExternally =
-            navigationAction.navigationType == .linkActivated ||
-            navigationAction.targetFrame == nil
+        if shouldAllowInAppNavigation?(url, navigationAction) == true {
+            decisionHandler(.allow)
+            return
+        }
 
-        if shouldOpenExternally {
+        if canOpenExternally?(url) == true {
             openExternal?(url)
             decisionHandler(.cancel)
             return
         }
 
-        decisionHandler(.allow)
+        decisionHandler(.cancel)
     }
 
     func webView(
@@ -892,7 +859,7 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url {
+        if let url = navigationAction.request.url, canOpenExternally?(url) == true {
             openExternal?(url)
         }
         return nil
@@ -920,15 +887,6 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         didTerminateContentProcess?()
-    }
-}
-
-private final class CopyOnSendBridge: NSObject, WKScriptMessageHandler {
-    var handleText: ((String) -> Void)?
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let text = message.body as? String else { return }
-        handleText?(text)
     }
 }
 

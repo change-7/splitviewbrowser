@@ -2,111 +2,13 @@ import Foundation
 import WebKit
 
 extension WebViewStore {
-    static var copyOnSendScriptSource: String {
+    static var answerCopyCaptureScriptSource: String {
         """
         (() => {
-          if (window.__splitViewCopyOnSendInitialized) return;
-          window.__splitViewCopyOnSendInitialized = true;
+          if (window.__splitViewAnswerCopyCaptureInitialized) return;
+          window.__splitViewAnswerCopyCaptureInitialized = true;
 
-          const handlerName = "\(copyOnSendMessageName)";
           const answerCopyHandlerName = "\(answerCopyCaptureMessageName)";
-          const storageKey = "split-view-copy-on-send-enabled:" + location.hostname;
-          const genericComposerSelectors = [
-            "textarea#prompt-textarea",
-            "textarea[data-id='root']",
-            "textarea[aria-label*='message' i]",
-            "textarea[aria-label*='gemini' i]",
-            "textarea[placeholder*='gemini' i]",
-            "textarea[placeholder*='메시지' i]",
-            "div[contenteditable='true'][role='textbox']",
-            "[role='textbox'][aria-multiline='true']",
-            "div[contenteditable='true']",
-            "textarea"
-          ];
-
-          const state = {
-            enabled: true,
-            supportLevel: "unsupported",
-            rule: null
-          };
-
-          const readEnabled = () => {
-            try {
-              return localStorage.getItem(storageKey) !== "0";
-            } catch (_) {
-              return true;
-            }
-          };
-
-          const normalizeRule = (rule) => {
-            if (!rule || typeof rule !== "object") return null;
-            const composerSelectors = Array.isArray(rule.composerSelectors) ? rule.composerSelectors.filter(Boolean) : [];
-            const sendButtonSelectors = Array.isArray(rule.sendButtonSelectors) ? rule.sendButtonSelectors.filter(Boolean) : [];
-            const sendPattern = typeof rule.sendPattern === "string" && rule.sendPattern.trim() ? rule.sendPattern : "send|submit|ask|arrow up|전송|보내기|질문";
-            const enableEnterKey = rule.enableEnterKey !== false;
-            return { composerSelectors, sendButtonSelectors, sendPattern, enableEnterKey };
-          };
-
-          window.__splitViewApplyAutoCopyConfig = (payload) => {
-            if (!payload || typeof payload !== "object") return;
-            state.enabled = payload.enabled !== false;
-            state.supportLevel = typeof payload.supportLevel === "string" ? payload.supportLevel : "unsupported";
-            state.rule = normalizeRule(payload.rule);
-            try {
-              localStorage.setItem(storageKey, state.enabled ? "1" : "0");
-            } catch (_) {}
-          };
-
-          window.__splitViewSetCopyOnSendEnabled = (value) => {
-            state.enabled = Boolean(value);
-            try {
-              localStorage.setItem(storageKey, state.enabled ? "1" : "0");
-            } catch (_) {}
-          };
-
-          state.enabled = readEnabled();
-
-          const isEditable = (element) => {
-            if (!(element instanceof HTMLElement)) return false;
-            if (element.matches("textarea,input[type='text'],input[type='search']")) return true;
-            return Boolean(element.isContentEditable);
-          };
-
-          const isComposerDisabled = (element) => {
-            if (!(element instanceof HTMLElement)) return true;
-            if (element.hasAttribute("disabled")) return true;
-            if (element.getAttribute("aria-disabled") === "true") return true;
-            if ("readOnly" in element && element.readOnly === true) return true;
-            return false;
-          };
-
-          const findComposer = () => {
-            const active = document.activeElement;
-            if (isEditable(active)) return active;
-
-            const selectors = state.rule && state.rule.composerSelectors && state.rule.composerSelectors.length
-              ? state.rule.composerSelectors
-              : genericComposerSelectors;
-
-            for (const selector of selectors) {
-              try {
-                const candidate = document.querySelector(selector);
-                if (isEditable(candidate)) return candidate;
-              } catch (_) {}
-            }
-            return null;
-          };
-
-          const extractComposerText = (composer) => {
-            if (!composer) return "";
-            if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) return composer.value || "";
-            if (typeof composer.value === "string") return composer.value;
-            return composer.innerText || composer.textContent || "";
-          };
-
-          const canRunAutoCopy = () => {
-            return state.enabled && state.supportLevel !== "unsupported" && state.rule;
-          };
 
           const normalizeExtractedText = (value) => String(value || "")
             .replace(/\\u00A0/g, " ")
@@ -114,51 +16,6 @@ extension WebViewStore {
             .replace(/[ \\t]+\\n/g, "\\n")
             .replace(/\\n{3,}/g, "\\n\\n")
             .trim();
-
-          const copyComposerText = (composerHint) => {
-            if (!canRunAutoCopy()) return;
-
-            let composer = composerHint;
-            if (!isEditable(composer)) composer = findComposer();
-
-            const text = extractComposerText(composer).trim();
-            if (!text) return;
-
-            try {
-              const handlers = window.webkit && window.webkit.messageHandlers;
-              if (handlers && handlers[handlerName]) {
-                handlers[handlerName].postMessage(text);
-              }
-            } catch (_) {}
-          };
-
-          const looksLikeSendButton = (element) => {
-            if (!(element instanceof Element)) return false;
-            const button = element.closest("button,[role='button'],input[type='submit']");
-            if (!button) return false;
-            if (button.matches("button[type='submit'],input[type='submit']")) return true;
-
-            if (state.rule && Array.isArray(state.rule.sendButtonSelectors)) {
-              for (const selector of state.rule.sendButtonSelectors) {
-                try {
-                  if (button.matches(selector)) return true;
-                } catch (_) {}
-              }
-            }
-
-            const descriptor = [
-              button.getAttribute("aria-label") || "",
-              button.getAttribute("title") || "",
-              button.textContent || ""
-            ].join(" ").toLowerCase();
-
-            try {
-              const pattern = new RegExp((state.rule && state.rule.sendPattern) || "send|submit|ask|arrow up|전송|보내기|질문");
-              return pattern.test(descriptor);
-            } catch (_) {
-              return false;
-            }
-          };
 
           const postCopiedAnswerPayload = (payload) => {
             const normalized = payload && typeof payload === "object" ? payload : {};
@@ -349,26 +206,6 @@ extension WebViewStore {
               text: answerText,
               fallbackClipboard: !answerText
             });
-          }, true);
-
-          document.addEventListener("click", (event) => {
-            if (!canRunAutoCopy()) return;
-            const target = event.target;
-            if (!(target instanceof Element)) return;
-            if (!looksLikeSendButton(target)) return;
-            copyComposerText();
-          }, true);
-
-          document.addEventListener("keydown", (event) => {
-            if (!canRunAutoCopy()) return;
-            if (!state.rule || state.rule.enableEnterKey === false) return;
-            if (event.isComposing) return;
-            if (event.key !== "Enter") return;
-            if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
-
-            const active = document.activeElement;
-            if (!isEditable(active)) return;
-            copyComposerText(active);
           }, true);
         })();
         """

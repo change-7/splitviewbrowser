@@ -179,67 +179,17 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
-    func testBuiltInServicesIncludeGrokAndAutoCopyDefaults() {
+    func testBuiltInServicesIncludeGrokAndLegacyMapping() {
         XCTAssertTrue(AIService.builtInServices.contains(where: { $0.id == AIService.grok.id }))
         XCTAssertEqual(AIService.legacyID(from: "grok"), AIService.grok.id)
-
-        let config = AutoCopyCatalog.defaultConfiguration(for: AIService.grok)
-        XCTAssertEqual(config.supportLevel, .supported)
-        let rule = try? XCTUnwrap(config.rule)
-        XCTAssertNotNil(rule)
-        XCTAssertTrue(rule?.sendButtonSelectors.contains(where: { $0.contains("data-testid") }) ?? false)
-        XCTAssertFalse(rule?.sendButtonSelectors.contains("button[role='button']") ?? true)
     }
 
-    @MainActor
-    func testBackupRoundTripRestoresKeyState() throws {
-        let sourceDefaults = makeDefaults()
-        let source = AppState(defaults: sourceDefaults)
-
-        source.setPanelCount(4)
-        source.setWebViewRetentionMode(.aggressive)
-        try source.addCustomService(title: "Example", urlString: "https://example.com")
-
-        if let custom = source.customServices.first {
-            source.updateAutoCopyProfile(
-                for: custom.id,
-                profile: AutoCopySiteProfile(
-                    supportLevel: .limited,
-                    composerSelectors: ["textarea"],
-                    sendButtonSelectors: ["button[type='submit']"],
-                    sendPattern: "send|submit",
-                    enableEnterKey: false
-                )
-            )
-            source.setService(custom, at: 0)
-        }
-
-        let savedPrompt = try source.savePrompt(title: "Translate", text: "Translate to Korean", tags: ["lang"], isFavorite: true)
-        source.setSelectedAnalysisPromptID(savedPrompt.id)
-        _ = try source.saveCurrentPreset(name: "Grid4", windowSize: CGSize(width: 1700, height: 900))
-
-        let backup = try source.exportBackupData()
-
-        let targetDefaults = makeDefaults()
-        let target = AppState(defaults: targetDefaults)
-        try target.importBackupData(backup)
-
-        XCTAssertEqual(target.panelCount, 4)
-        XCTAssertEqual(target.webViewRetentionMode, .aggressive)
-        XCTAssertFalse(target.customServices.isEmpty)
-        XCTAssertEqual(target.savedPrompts.count, 1)
-        XCTAssertEqual(target.savedPrompts.first?.tags, ["lang"])
-        XCTAssertTrue(target.savedPrompts.first?.isFavorite ?? false)
-        XCTAssertEqual(target.selectedAnalysisPromptID, target.savedPrompts.first?.id)
-        XCTAssertEqual(target.presets.first?.name, "Grid4")
-
-        if let custom = target.customServices.first {
-            let profile = target.autoCopyProfile(for: custom)
-            XCTAssertEqual(profile.supportLevel, .limited)
-            XCTAssertEqual(profile.composerSelectors ?? [], ["textarea"])
-            XCTAssertEqual(profile.enableEnterKey, false)
-        } else {
-            XCTFail("Custom service missing after import")
-        }
+    func testBuiltInServiceTrustedHosts() {
+        XCTAssertTrue(AIService.chatGPT.trustsHost("chatgpt.com"))
+        XCTAssertTrue(AIService.chatGPT.trustsHost("auth.openai.com"))
+        XCTAssertTrue(AIService.gemini.trustsHost("accounts.google.com"))
+        XCTAssertTrue(AIService.perplexity.trustsHost("www.perplexity.ai"))
+        XCTAssertTrue(AIService.grok.trustsHost("grok.com"))
+        XCTAssertFalse(AIService.chatGPT.trustsHost("example.com"))
     }
 }
