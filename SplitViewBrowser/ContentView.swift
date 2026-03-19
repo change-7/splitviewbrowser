@@ -194,6 +194,19 @@ struct ContentView: View {
                 Image(systemName: "trash")
             }
         }
+        ToolbarItem(placement: .primaryAction) {
+            ToolbarActionChipButton(
+                helpText: "패널 추가",
+                accessibilityLabel: "패널 추가",
+                isEnabled: appState.panelCount < AppState.maxPanels,
+                palette: .neutral,
+                action: {
+                    addPanelFromToolbar()
+                }
+            ) {
+                Image(systemName: "plus.rectangle.on.rectangle")
+            }
+        }
     }
 
     private var presetToolbarGroupView: some View {
@@ -301,6 +314,7 @@ struct ContentView: View {
                             availableServices: appState.services,
                             store: appState.webViewStore(for: index),
                             isAnalysisTarget: appState.analysisTargetPanelIndex == index,
+                            canClose: appState.panelCount > AppState.minPanels,
                             onSetAnalysisTarget: {
                                 selectAnalysisTargetPanel(index)
                             },
@@ -309,6 +323,9 @@ struct ContentView: View {
                             },
                             onTriggerPageCopy: {
                                 triggerLatestPageCopy(from: index)
+                            },
+                            onClosePanel: {
+                                closePanel(at: index)
                             }
                         )
                             .frame(width: currentPanelWidth)
@@ -347,6 +364,14 @@ struct ContentView: View {
 
     private func clearPresetSelectionFromToolbar() {
         appState.clearActivePresetSelection()
+    }
+
+    private func addPanelFromToolbar() {
+        guard appState.panelCount < AppState.maxPanels else {
+            setCollectionStatus("최대 \(AppState.maxPanels)개 패널까지 추가할 수 있습니다", isError: true)
+            return
+        }
+        appState.addPanel()
     }
 
     private func triggerLatestPageCopy(from panelIndex: Int) {
@@ -616,6 +641,27 @@ struct ContentView: View {
         guard quickComposeKnownPanelCount == 0 else { return }
         quickComposeKnownPanelCount = appState.panelCount
         quickComposeTargetPanels = Set(0 ..< appState.panelCount)
+    }
+
+    private func closePanel(at panelIndex: Int) {
+        guard appState.panelCount > AppState.minPanels else {
+            setCollectionStatus("패널이 1개일 때는 닫을 수 없습니다", isError: true)
+            return
+        }
+
+        let remappedTargets = Set(
+            quickComposeTargetPanels.compactMap { index -> Int? in
+                guard index != panelIndex else { return nil }
+                return index > panelIndex ? index - 1 : index
+            }
+        )
+        quickComposeTargetPanels = remappedTargets
+        quickComposeKnownPanelCount = max(AppState.minPanels, appState.panelCount - 1)
+        if quickComposeKnownPanelCount < 2 {
+            lastTwoPanelCrossSendDirection = nil
+        }
+
+        appState.removePanel(at: panelIndex)
     }
 
     private func normalizeQuickComposeTargets(for newCount: Int) {

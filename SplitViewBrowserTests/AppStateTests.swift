@@ -179,6 +179,99 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
+    func testAddPanelAppendsNewLastPanelAndPersistsState() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(2)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.addPanel()
+
+        XCTAssertEqual(state.panelCount, 3)
+        XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(state.service(at: 1).id, AIService.gemini.id)
+        XCTAssertEqual(state.service(at: 2).id, AIService.defaultPanelServiceIDs(count: AppState.maxPanels)[2])
+
+        let restored = AppState(defaults: defaults)
+        XCTAssertEqual(restored.panelCount, 3)
+        XCTAssertEqual(restored.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(restored.service(at: 1).id, AIService.gemini.id)
+        XCTAssertEqual(restored.service(at: 2).id, AIService.defaultPanelServiceIDs(count: AppState.maxPanels)[2])
+    }
+
+    @MainActor
+    func testAddPanelAfterMiddleRemovalKeepsOrderAndAppendsDefault() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(4)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.setService(.grok, at: 2)
+        state.setService(.perplexity, at: 3)
+        state.removePanel(at: 1)
+        state.addPanel()
+
+        XCTAssertEqual(state.panelCount, 4)
+        XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(state.service(at: 1).id, AIService.grok.id)
+        XCTAssertEqual(state.service(at: 2).id, AIService.perplexity.id)
+        XCTAssertEqual(state.service(at: 3).id, AIService.defaultPanelServiceIDs(count: AppState.maxPanels)[4])
+    }
+
+    @MainActor
+    func testRemovePanelReindexesServicesResponsesAndAnalysisTarget() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(4)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.setService(.grok, at: 2)
+        state.setService(.perplexity, at: 3)
+        state.setAnalysisTargetPanelIndex(2)
+
+        state.collectPanelResponse(panelIndex: 1, service: .gemini, sourceURLString: "https://gemini.google.com/", text: "B")
+        state.collectPanelResponse(panelIndex: 2, service: .grok, sourceURLString: "https://grok.com/", text: "C")
+        state.collectPanelResponse(panelIndex: 3, service: .perplexity, sourceURLString: "https://www.perplexity.ai/", text: "D")
+
+        state.removePanel(at: 1)
+
+        XCTAssertEqual(state.panelCount, 3)
+        XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(state.service(at: 1).id, AIService.grok.id)
+        XCTAssertEqual(state.service(at: 2).id, AIService.perplexity.id)
+        XCTAssertEqual(state.analysisTargetPanelIndex, 1)
+        XCTAssertNil(state.collectedResponse(for: 0))
+        XCTAssertEqual(state.collectedResponse(for: 1)?.text, "C")
+        XCTAssertEqual(state.collectedResponse(for: 2)?.text, "D")
+    }
+
+    @MainActor
+    func testRemoveTargetPanelAssignsNextValidPanelAndPersistsState() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(3)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.setService(.grok, at: 2)
+        state.setAnalysisTargetPanelIndex(1)
+        state.removePanel(at: 1)
+
+        XCTAssertEqual(state.panelCount, 2)
+        XCTAssertEqual(state.analysisTargetPanelIndex, 1)
+        XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(state.service(at: 1).id, AIService.grok.id)
+
+        let restored = AppState(defaults: defaults)
+        XCTAssertEqual(restored.panelCount, 2)
+        XCTAssertEqual(restored.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(restored.service(at: 1).id, AIService.grok.id)
+    }
+
+    @MainActor
     func testBuiltInServicesIncludeGrokAndLegacyMapping() {
         XCTAssertTrue(AIService.builtInServices.contains(where: { $0.id == AIService.grok.id }))
         XCTAssertEqual(AIService.legacyID(from: "grok"), AIService.grok.id)

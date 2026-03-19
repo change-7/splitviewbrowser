@@ -7,9 +7,11 @@ struct WebPanelView: View {
     let availableServices: [AIService]
     @ObservedObject var store: WebViewStore
     let isAnalysisTarget: Bool
+    let canClose: Bool
     let onSetAnalysisTarget: () -> Void
     let onSendCollectedResponsesToPanel: () -> Void
     let onTriggerPageCopy: () -> Void
+    let onClosePanel: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -64,6 +66,20 @@ struct WebPanelView: View {
                     .accessibilityLabel("로딩 중")
             }
 
+            Button(action: {
+                store.goHome(service: service)
+            }) {
+                Image(systemName: "house")
+            }
+            .help("Home")
+            .accessibilityLabel("홈")
+
+            Button(action: store.reload) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .help("Reload")
+            .accessibilityLabel("새로고침")
+
             Button(action: onSetAnalysisTarget) {
                 Image(systemName: "scope")
                     .foregroundStyle(isAnalysisTarget ? Color.accentColor : Color.primary)
@@ -84,19 +100,13 @@ struct WebPanelView: View {
             .help("이 패널의 최신 답변 복사 버튼 클릭")
             .accessibilityLabel("이 패널 최신 답변 복사")
 
-            Button(action: store.reload) {
-                Image(systemName: "arrow.clockwise")
+            if canClose {
+                Button(action: onClosePanel) {
+                    Image(systemName: "xmark")
+                }
+                .help("이 패널 닫기")
+                .accessibilityLabel("이 패널 닫기")
             }
-            .help("Reload")
-            .accessibilityLabel("새로고침")
-
-            Button(action: {
-                store.goHome(service: service)
-            }) {
-                Image(systemName: "house")
-            }
-            .help("Home")
-            .accessibilityLabel("홈")
         }
         .padding(8)
         .background(.bar)

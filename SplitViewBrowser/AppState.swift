@@ -296,6 +296,41 @@ final class AppState: ObservableObject {
         logger.log(.info, category: "Layout", "Panel count changed \(previousCount) -> \(panelCount)")
     }
 
+    func addPanel() {
+        guard panelCount < Self.maxPanels else { return }
+
+        let previousCount = panelCount
+        panelCount += 1
+        panelServiceIDs = normalizedServiceIDs(from: panelServiceIDs)
+
+        persistPanelCount()
+        persistPanelServiceIDs()
+        flushPendingDefaultWrites()
+        markStoreActive(at: panelCount - 1)
+        syncActivePresetToCurrentStateIfNeeded()
+        clearActivePresetIfNoLongerMatchingCurrentState()
+        logger.log(.info, category: "Layout", "Added panel \(panelCount) (\(previousCount) -> \(panelCount))")
+    }
+
+    func removePanel(at index: Int) {
+        guard panelCount > Self.minPanels else { return }
+        guard index >= 0, index < panelCount else { return }
+
+        let previousCount = panelCount
+        panelCount = max(Self.minPanels, panelCount - 1)
+        panelServiceIDs = reindexedPanelServiceIDs(removing: index)
+        remapCollectedResponses(removingPanelAt: index)
+        remapAnalysisTargetIndex(removingPanelAt: index)
+        remapWebViewStores(removingPanelAt: index)
+
+        persistPanelCount()
+        persistPanelServiceIDs()
+        flushPendingDefaultWrites()
+        syncActivePresetToCurrentStateIfNeeded()
+        clearActivePresetIfNoLongerMatchingCurrentState()
+        logger.log(.info, category: "Layout", "Removed panel \(index + 1) (\(previousCount) -> \(panelCount))")
+    }
+
     func service(at index: Int) -> AIService {
         guard panelServiceIDs.indices.contains(index) else {
             return AIService.chatGPT
@@ -1117,6 +1152,69 @@ final class AppState: ObservableObject {
                 seen.insert(key)
                 return true
             }
+    }
+
+    private func reindexedPanelServiceIDs(removing removedIndex: Int) -> [String] {
+        var updated = panelServiceIDs
+        guard updated.indices.contains(removedIndex) else { return normalizedServiceIDs(from: updated) }
+        updated.remove(at: removedIndex)
+
+        let defaults = AIService.defaultPanelServiceIDs(count: Self.maxPanels)
+        let fallbackID = defaults.indices.contains(updated.count) ? defaults[updated.count] : Self.fallbackServiceID
+        updated.append(fallbackID)
+        return normalizedServiceIDs(from: updated)
+    }
+
+    private func remapCollectedResponses(removingPanelAt removedIndex: Int) {
+        guard !collectedResponsesByPanel.isEmpty else { return }
+
+        var updated: [Int: CollectedPanelResponse] = [:]
+        for response in collectedResponsesByPanel.values {
+            guard response.panelIndex != removedIndex else { continue }
+            let newIndex = response.panelIndex > removedIndex ? response.panelIndex - 1 : response.panelIndex
+            guard newIndex >= 0, newIndex < panelCount else { continue }
+            updated[newIndex] = CollectedPanelResponse(
+                panelIndex: newIndex,
+                serviceID: response.serviceID,
+                serviceTitle: response.serviceTitle,
+                sourceURLString: response.sourceURLString,
+                text: response.text,
+                capturedAt: response.capturedAt
+            )
+        }
+        collectedResponsesByPanel = updated
+    }
+
+    private func remapAnalysisTargetIndex(removingPanelAt removedIndex: Int) {
+        if analysisTargetPanelIndex == removedIndex {
+            analysisTargetPanelIndex = min(removedIndex, max(panelCount - 1, 0))
+        } else if analysisTargetPanelIndex > removedIndex {
+            analysisTargetPanelIndex -= 1
+        }
+        normalizeAnalysisTargetPanelIndex()
+    }
+
+    private func remapWebViewStores(removingPanelAt removedIndex: Int) {
+        if let removedStore = webViewStores.removeValue(forKey: removedIndex) {
+            removedStore.prepareForRelease()
+        }
+        hiddenStoreSince.removeValue(forKey: removedIndex)
+        hiddenStoreReleaseTasks.removeValue(forKey: removedIndex)?.cancel()
+
+        func remapKeys<T>(_ source: [Int: T]) -> [Int: T] {
+            var mapped: [Int: T] = [:]
+            for (key, value) in source {
+                guard key != removedIndex else { continue }
+                let newKey = key > removedIndex ? key - 1 : key
+                mapped[newKey] = value
+            }
+            return mapped
+        }
+
+        webViewStores = remapKeys(webViewStores)
+        hiddenStoreSince = remapKeys(hiddenStoreSince)
+        hiddenStoreReleaseTasks = remapKeys(hiddenStoreReleaseTasks)
+        pruneHiddenStoresToLimit()
     }
 
     private func reconcileWebViewStores(afterPanelCountChangeFrom oldCount: Int, to newCount: Int) {
