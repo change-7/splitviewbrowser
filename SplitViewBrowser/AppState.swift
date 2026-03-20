@@ -222,6 +222,7 @@ final class AppState: ObservableObject {
     @Published private(set) var webViewRetentionMode: WebViewRetentionMode
     @Published private(set) var isTwoPanelCrossSendEnabled: Bool
     @Published private(set) var pendingPresetWindowSize: CGSize?
+    @Published private(set) var panelStructureVersion: Int
     private(set) var isAppActive: Bool
     @Published private(set) var collectedResponsesByPanel: [Int: CollectedPanelResponse]
     @Published private(set) var analysisTargetPanelIndex: Int
@@ -257,6 +258,7 @@ final class AppState: ObservableObject {
         webViewRetentionMode = Self.restoreWebViewRetentionMode(from: defaults)
         isTwoPanelCrossSendEnabled = Self.restoreTwoPanelCrossSendEnabled(from: defaults)
         pendingPresetWindowSize = nil
+        panelStructureVersion = 0
         isAppActive = NSApp?.isActive ?? true
         collectedResponsesByPanel = [:]
         analysisTargetPanelIndex = max(0, initialPanelCount - 1)
@@ -287,6 +289,7 @@ final class AppState: ObservableObject {
         guard clamped != panelCount else { return }
         let previousCount = panelCount
         panelCount = clamped
+        bumpPanelStructureVersion()
         persistPanelCount()
 
         reconcileWebViewStores(afterPanelCountChangeFrom: previousCount, to: panelCount)
@@ -300,8 +303,16 @@ final class AppState: ObservableObject {
         guard panelCount < Self.maxPanels else { return }
 
         let previousCount = panelCount
+        let appendedServiceID = nextAppendedPanelServiceID()
         panelCount += 1
-        panelServiceIDs = normalizedServiceIDs(from: panelServiceIDs)
+        var updatedServiceIDs = panelServiceIDs
+        if updatedServiceIDs.indices.contains(previousCount) {
+            updatedServiceIDs[previousCount] = appendedServiceID
+        } else {
+            updatedServiceIDs.append(appendedServiceID)
+        }
+        panelServiceIDs = normalizedServiceIDs(from: updatedServiceIDs)
+        bumpPanelStructureVersion()
 
         persistPanelCount()
         persistPanelServiceIDs()
@@ -319,6 +330,7 @@ final class AppState: ObservableObject {
         let previousCount = panelCount
         panelCount = max(Self.minPanels, panelCount - 1)
         panelServiceIDs = reindexedPanelServiceIDs(removing: index)
+        bumpPanelStructureVersion()
         remapCollectedResponses(removingPanelAt: index)
         remapAnalysisTargetIndex(removingPanelAt: index)
         remapWebViewStores(removingPanelAt: index)
@@ -1054,6 +1066,10 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func bumpPanelStructureVersion() {
+        panelStructureVersion &+= 1
+    }
+
     private func pruneCollectedResponsesToVisiblePanels() {
         let visibleIndexes = Set(0 ..< panelCount)
         let filtered = collectedResponsesByPanel.filter { visibleIndexes.contains($0.key) }
@@ -1163,6 +1179,22 @@ final class AppState: ObservableObject {
         let fallbackID = defaults.indices.contains(updated.count) ? defaults[updated.count] : Self.fallbackServiceID
         updated.append(fallbackID)
         return normalizedServiceIDs(from: updated)
+    }
+
+    private func nextAppendedPanelServiceID() -> String {
+        let visibleServiceIDs = Array(panelServiceIDs.prefix(panelCount))
+        let priorityIDs = [
+            AIService.chatGPT.id,
+            AIService.gemini.id,
+            AIService.perplexity.id,
+            AIService.grok.id,
+        ]
+
+        for candidate in priorityIDs where !visibleServiceIDs.contains(candidate) {
+            return candidate
+        }
+
+        return visibleServiceIDs.last ?? Self.fallbackServiceID
     }
 
     private func remapCollectedResponses(removingPanelAt removedIndex: Int) {

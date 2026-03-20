@@ -191,13 +191,13 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.panelCount, 3)
         XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
         XCTAssertEqual(state.service(at: 1).id, AIService.gemini.id)
-        XCTAssertEqual(state.service(at: 2).id, AIService.defaultPanelServiceIDs(count: AppState.maxPanels)[2])
+        XCTAssertEqual(state.service(at: 2).id, AIService.perplexity.id)
 
         let restored = AppState(defaults: defaults)
         XCTAssertEqual(restored.panelCount, 3)
         XCTAssertEqual(restored.service(at: 0).id, AIService.chatGPT.id)
         XCTAssertEqual(restored.service(at: 1).id, AIService.gemini.id)
-        XCTAssertEqual(restored.service(at: 2).id, AIService.defaultPanelServiceIDs(count: AppState.maxPanels)[2])
+        XCTAssertEqual(restored.service(at: 2).id, AIService.perplexity.id)
     }
 
     @MainActor
@@ -217,7 +217,37 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
         XCTAssertEqual(state.service(at: 1).id, AIService.grok.id)
         XCTAssertEqual(state.service(at: 2).id, AIService.perplexity.id)
-        XCTAssertEqual(state.service(at: 3).id, AIService.defaultPanelServiceIDs(count: AppState.maxPanels)[4])
+        XCTAssertEqual(state.service(at: 3).id, AIService.gemini.id)
+    }
+
+    @MainActor
+    func testAddPanelUsesLastVisibleServiceWhenAllBuiltInServicesAlreadyVisible() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(4)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.setService(.perplexity, at: 2)
+        state.setService(.grok, at: 3)
+        state.addPanel()
+
+        XCTAssertEqual(state.panelCount, 5)
+        XCTAssertEqual(state.service(at: 4).id, AIService.grok.id)
+    }
+
+    @MainActor
+    func testPanelStructureVersionChangesWhenPanelsAreAddedOrRemoved() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        let initialVersion = state.panelStructureVersion
+        state.addPanel()
+        XCTAssertEqual(state.panelStructureVersion, initialVersion + 1)
+
+        let afterAddVersion = state.panelStructureVersion
+        state.removePanel(at: 1)
+        XCTAssertEqual(state.panelStructureVersion, afterAddVersion + 1)
     }
 
     @MainActor
@@ -285,4 +315,5 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(AIService.grok.trustsHost("grok.com"))
         XCTAssertFalse(AIService.chatGPT.trustsHost("example.com"))
     }
+
 }

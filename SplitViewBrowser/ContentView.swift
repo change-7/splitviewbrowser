@@ -328,6 +328,7 @@ struct ContentView: View {
                                 closePanel(at: index)
                             }
                         )
+                            .id(panelViewIdentity(for: index))
                             .frame(width: currentPanelWidth)
                     }
                 }
@@ -355,6 +356,10 @@ struct ContentView: View {
 
     private func applyPresetFromToolbar(_ preset: ViewPreset) {
         appState.applyPreset(id: preset.id)
+    }
+
+    private func panelViewIdentity(for index: Int) -> String {
+        "panel-\(appState.panelStructureVersion)-\(index)"
     }
 
     private func addPresetFromToolbar() {
@@ -449,19 +454,41 @@ struct ContentView: View {
 
     @MainActor
     private func sendLatestAnswerAcrossPanels(from sourcePanelIndex: Int, to targetPanelIndex: Int) {
+        requestTwoPanelCrossSend(from: sourcePanelIndex, to: targetPanelIndex)
+    }
+
+    @MainActor
+    private func requestTwoPanelCrossSend(
+        from sourcePanelIndex: Int,
+        to targetPanelIndex: Int
+    ) {
         guard appState.panelCount == 2 else {
             setCollectionStatus("이 기능은 2패널일 때만 사용할 수 있습니다", isError: true)
             return
         }
 
+        Task { @MainActor in
+            _ = await performLatestAnswerCrossSend(
+                from: sourcePanelIndex,
+                to: targetPanelIndex
+            )
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    private func performLatestAnswerCrossSend(
+        from sourcePanelIndex: Int,
+        to targetPanelIndex: Int
+    ) async -> Bool {
         guard sourcePanelIndex != targetPanelIndex else {
             setCollectionStatus("같은 패널로는 전송할 수 없습니다", isError: true)
-            return
+            return false
         }
 
         guard !isTwoPanelCrossSendInFlight else {
             setCollectionStatus("패널 간 전송이 이미 진행 중입니다", isError: true)
-            return
+            return false
         }
 
         let sourceStore = appState.webViewStore(for: sourcePanelIndex)
@@ -475,63 +502,69 @@ struct ContentView: View {
         }
 
         isTwoPanelCrossSendInFlight = true
-        setCollectionStatus("패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)로 전송 중", isError: false)
+        defer {
+            isTwoPanelCrossSendInFlight = false
+        }
 
-        Task { @MainActor in
-            defer {
-                isTwoPanelCrossSendInFlight = false
+        setCollectionStatus(
+            "패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)로 전송 중",
+            isError: false
+        )
+
+        let copyResult = await sourceStore.triggerAssistantAnswerCopy(targetOffset: 0)
+        switch copyResult {
+        case let .failure(error):
+            setCollectionStatus("패널 \(sourcePanelIndex + 1) 최신 답변 복사 실패: \(error.localizedDescription)", isError: true)
+            return false
+        case .success:
+            break
+        }
+
+        guard let copiedText = await waitForFreshCopiedResponse(
+            from: sourceStore,
+            panelIndex: sourcePanelIndex,
+            notBefore: copyStartedAt
+        ) else {
+            setCollectionStatus("패널 \(sourcePanelIndex + 1) 최신 답변을 감지하지 못했습니다", isError: true)
+            return false
+        }
+
+        let prepareResult = await targetStore.prepareComposerForInput()
+        if case let .failure(error) = prepareResult {
+            setCollectionStatus("패널 \(targetPanelIndex + 1) 입력창 준비 실패: \(error.localizedDescription)", isError: true)
+            return false
+        }
+
+        let insertResult = await targetStore.sendTextToComposer(copiedText, submit: false)
+        switch insertResult {
+        case let .success(insertResponse):
+            guard insertResponse.inserted else {
+                setCollectionStatus("패널 \(targetPanelIndex + 1)에 답변 입력 실패", isError: true)
+                return false
             }
 
-            let copyResult = await sourceStore.triggerAssistantAnswerCopy(targetOffset: 0)
-            switch copyResult {
-            case let .failure(error):
-                setCollectionStatus("패널 \(sourcePanelIndex + 1) 최신 답변 복사 실패: \(error.localizedDescription)", isError: true)
-                return
-            case .success:
-                break
-            }
-
-            guard let copiedText = await waitForFreshCopiedResponse(
-                from: sourceStore,
-                panelIndex: sourcePanelIndex,
-                notBefore: copyStartedAt
-            ) else {
-                setCollectionStatus("패널 \(sourcePanelIndex + 1) 최신 답변을 감지하지 못했습니다", isError: true)
-                return
-            }
-
-            let prepareResult = await targetStore.prepareComposerForInput()
-            if case let .failure(error) = prepareResult {
-                setCollectionStatus("패널 \(targetPanelIndex + 1) 입력창 준비 실패: \(error.localizedDescription)", isError: true)
-                return
-            }
-
-            let insertResult = await targetStore.sendTextToComposer(copiedText, submit: false)
-            switch insertResult {
-            case let .success(insertResponse):
-                guard insertResponse.inserted else {
-                    setCollectionStatus("패널 \(targetPanelIndex + 1)에 답변 입력 실패", isError: true)
-                    return
+            try? await Task.sleep(nanoseconds: 320_000_000)
+            guard !Task.isCancelled else { return false }
+            let submitResult = await targetStore.submitPreparedComposer()
+            switch submitResult {
+            case let .success(result):
+                if result.submitted {
+                    setCollectionStatus("패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)로 전송 완료", isError: false)
+                    return true
                 }
 
-                try? await Task.sleep(nanoseconds: 320_000_000)
-                let submitResult = await targetStore.submitPreparedComposer()
-                switch submitResult {
-                case let .success(result):
-                    if result.submitted {
-                        setCollectionStatus("패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)로 전송 완료", isError: false)
-                    } else {
-                        setCollectionStatus(
-                            "패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)에 입력 완료 (제출 확인 필요)",
-                            isError: true
-                        )
-                    }
-                case let .failure(error):
-                    setCollectionStatus("패널 \(targetPanelIndex + 1) 제출 실패: \(error.localizedDescription)", isError: true)
-                }
+                setCollectionStatus(
+                    "패널 \(sourcePanelIndex + 1) 답변을 패널 \(targetPanelIndex + 1)에 입력 완료 (제출 확인 필요)",
+                    isError: true
+                )
+                return true
             case let .failure(error):
-                setCollectionStatus("패널 \(targetPanelIndex + 1) 전송 실패: \(error.localizedDescription)", isError: true)
+                setCollectionStatus("패널 \(targetPanelIndex + 1) 제출 실패: \(error.localizedDescription)", isError: true)
+                return false
             }
+        case let .failure(error):
+            setCollectionStatus("패널 \(targetPanelIndex + 1) 전송 실패: \(error.localizedDescription)", isError: true)
+            return false
         }
     }
 
