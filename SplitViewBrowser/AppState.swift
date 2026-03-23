@@ -445,18 +445,12 @@ final class AppState: ObservableObject {
         let header = resolvedAnalysisPromptHeader()
 
         let body = responses.map { response in
-            var lines: [String] = []
-            lines.append("## 패널 \(response.panelIndex + 1) - \(response.serviceTitle)")
-            if let sourceURLString = response.sourceURLString, !sourceURLString.isEmpty {
-                lines.append("- URL: \(sourceURLString)")
-            }
-            lines.append("- 수집 시각: \(Self.responseTimestampFormatter.string(from: response.capturedAt))")
-            lines.append("")
-            lines.append(response.text)
-            return lines.joined(separator: "\n")
+            response.text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        .filter { !$0.isEmpty }
         .joined(separator: "\n\n---\n\n")
 
+        guard !body.isEmpty else { return nil }
         return header + "\n\n" + body
     }
 

@@ -315,14 +315,14 @@ struct ContentView: View {
                             store: appState.webViewStore(for: index),
                             isAnalysisTarget: appState.analysisTargetPanelIndex == index,
                             canClose: appState.panelCount > AppState.minPanels,
-                            onSetAnalysisTarget: {
-                                selectAnalysisTargetPanel(index)
-                            },
                             onSendCollectedResponsesToPanel: {
                                 sendCollectedResponses(toPanel: index, updateAnalysisTarget: true)
                             },
                             onTriggerPageCopy: {
                                 triggerLatestPageCopy(from: index)
+                            },
+                            onTriggerTemporaryChat: {
+                                triggerTemporaryChat(for: index)
                             },
                             onClosePanel: {
                                 closePanel(at: index)
@@ -593,39 +593,7 @@ struct ContentView: View {
         return nil
     }
 
-    private func selectAnalysisTargetPanel(_ panelIndex: Int) {
-        appState.setAnalysisTargetPanelIndex(panelIndex)
-        prepareAnalysisTargetComposer(panelIndex: panelIndex)
-    }
-
-    private func prepareAnalysisTargetComposer(panelIndex: Int) {
-        guard panelIndex >= 0, panelIndex < appState.panelCount else {
-            setCollectionStatus("분석 대상 패널이 유효하지 않습니다", isError: true)
-            return
-        }
-
-        let targetStore = appState.webViewStore(for: panelIndex)
-        Task {
-            let result = await targetStore.prepareComposerForInput()
-            switch result {
-            case let .success(prepareResult):
-                if prepareResult.focused {
-                    setCollectionStatus("분석 패널 \(panelIndex + 1) 입력창 준비 완료", isError: false)
-                } else {
-                    setCollectionStatus("분석 패널 \(panelIndex + 1) 입력창 준비 결과 확인 필요", isError: true)
-                }
-            case let .failure(error):
-                setCollectionStatus("분석 패널 \(panelIndex + 1) 입력창 준비 실패: \(error.localizedDescription)", isError: true)
-            }
-        }
-    }
-
     private func sendCollectedResponses(toPanel panelIndex: Int, updateAnalysisTarget: Bool) {
-        guard let prompt = appState.buildCollectedResponsesAnalysisPrompt() else {
-            setCollectionStatus("전송할 수집 답변이 없습니다", isError: true)
-            return
-        }
-
         guard panelIndex >= 0, panelIndex < appState.panelCount else {
             setCollectionStatus("대상 패널이 유효하지 않습니다", isError: true)
             return
@@ -636,6 +604,23 @@ struct ContentView: View {
         }
 
         let targetStore = appState.webViewStore(for: panelIndex)
+        guard let prompt = appState.buildCollectedResponsesAnalysisPrompt() else {
+            Task {
+                let result = await targetStore.prepareComposerForInput()
+                switch result {
+                case let .success(prepareResult):
+                    if prepareResult.focused {
+                        setCollectionStatus("패널 \(panelIndex + 1)을 분석 대상으로 지정했습니다", isError: false)
+                    } else {
+                        setCollectionStatus("패널 \(panelIndex + 1)을 분석 대상으로 지정했습니다 (입력창 준비 결과 확인 필요)", isError: true)
+                    }
+                case let .failure(error):
+                    setCollectionStatus("패널 \(panelIndex + 1) 분석 대상 지정 완료, 입력창 준비 실패: \(error.localizedDescription)", isError: true)
+                }
+            }
+            return
+        }
+
         Task {
             let result = await targetStore.sendTextToComposer(prompt, submit: true)
             switch result {
@@ -649,6 +634,34 @@ struct ContentView: View {
                 }
             case let .failure(error):
                 setCollectionStatus("패널 \(panelIndex + 1) 전송 실패: \(error.localizedDescription)", isError: true)
+            }
+        }
+    }
+
+    private func triggerTemporaryChat(for panelIndex: Int) {
+        guard panelIndex >= 0, panelIndex < appState.panelCount else {
+            setCollectionStatus("패널 인덱스가 유효하지 않습니다", isError: true)
+            return
+        }
+
+        let service = appState.service(at: panelIndex)
+        guard service.id == AIService.chatGPT.id || service.id == AIService.gemini.id else {
+            setCollectionStatus("이 서비스는 임시채팅을 지원하지 않습니다", isError: true)
+            return
+        }
+
+        let store = appState.webViewStore(for: panelIndex)
+        Task {
+            let result = await store.triggerTemporaryChat()
+            switch result {
+            case let .success(clickResult):
+                if clickResult.clicked {
+                    setCollectionStatus("패널 \(panelIndex + 1) 임시채팅 버튼 클릭 완료", isError: false)
+                } else {
+                    setCollectionStatus("패널 \(panelIndex + 1) 임시채팅 결과 확인 필요", isError: true)
+                }
+            case let .failure(error):
+                setCollectionStatus("패널 \(panelIndex + 1) 임시채팅 실패: \(error.localizedDescription)", isError: true)
             }
         }
     }

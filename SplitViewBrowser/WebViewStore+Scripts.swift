@@ -102,7 +102,7 @@ extension WebViewStore {
             const host = (location.hostname || "").toLowerCase();
 
             const hostSelectors = [];
-            if (host.includes("openai.com")) {
+            if (host.includes("openai.com") || host.includes("chatgpt.com")) {
               hostSelectors.push("[data-message-author-role='assistant']");
               hostSelectors.push("article");
             } else if (host.includes("gemini.google.com")) {
@@ -123,7 +123,7 @@ extension WebViewStore {
               hostSelectors.push("div.prose");
             }
 
-            const genericSelectors = ["article", ".prose", ".markdown", "main"];
+            const genericSelectors = ["article", ".prose", ".markdown"];
             const selectors = hostSelectors.concat(genericSelectors);
 
             const searchSeeds = [];
@@ -1333,6 +1333,140 @@ extension WebViewStore {
             const reason = error && error.message ? String(error.message) : "전송 스크립트 오류";
             const stack = error && error.stack ? String(error.stack).slice(0, 1200) : "";
             return JSON.stringify({ ok: false, reason, stack });
+          }
+        })();
+        """
+    }
+
+    static var temporaryChatButtonScriptSource: String {
+        """
+        (() => {
+          try {
+            const host = (location.hostname || "").toLowerCase();
+
+            const isVisible = (element) => {
+              if (!(element instanceof Element)) return false;
+              const style = window.getComputedStyle(element);
+              if (!style) return true;
+              if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+              const rect = element.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            };
+
+            const isEnabled = (element) => {
+              if (!(element instanceof Element)) return false;
+              if (element.hasAttribute("disabled")) return false;
+              if (element.getAttribute("aria-disabled") === "true") return false;
+              return true;
+            };
+
+            const resolveButton = (element) => {
+              if (!(element instanceof Element)) return null;
+              if (element.matches("button,[role='button']")) return element;
+              return element.closest("button,[role='button']");
+            };
+
+            const uniqueElements = (elements) => {
+              const seen = new Set();
+              return elements.filter((element) => {
+                if (!(element instanceof Element)) return false;
+                if (seen.has(element)) return false;
+                seen.add(element);
+                return true;
+              });
+            };
+
+            const queryButtons = (selectors) =>
+              uniqueElements(
+                selectors.flatMap((selector) => {
+                  try {
+                    return Array.from(document.querySelectorAll(selector)).map(resolveButton);
+                  } catch (_) {
+                    return [];
+                  }
+                })
+              )
+                .filter((button) => button instanceof Element)
+                .filter((button) => isVisible(button) && isEnabled(button));
+
+            const clickButtonLikeUser = (button) => {
+              if (!(button instanceof HTMLElement)) return false;
+              button.focus?.();
+              const eventInit = { bubbles: true, cancelable: true, composed: true };
+              try {
+                button.dispatchEvent(new PointerEvent("pointerdown", eventInit));
+                button.dispatchEvent(new MouseEvent("mousedown", eventInit));
+                button.dispatchEvent(new PointerEvent("pointerup", eventInit));
+                button.dispatchEvent(new MouseEvent("mouseup", eventInit));
+              } catch (_) {}
+              try {
+                button.click();
+                return true;
+              } catch (_) {
+                return false;
+              }
+            };
+
+            if (host.includes("openai.com") || host.includes("chatgpt.com")) {
+              const candidates = queryButtons([
+                "button[aria-label='임시 채팅 켜기']",
+                "button[aria-label*='임시 채팅' i]"
+              ]);
+
+              if (!candidates.length) {
+                return JSON.stringify({ ok: false, reason: "ChatGPT 임시채팅 버튼을 찾지 못했습니다." });
+              }
+
+              const clicked = clickButtonLikeUser(candidates[0]);
+              return JSON.stringify({
+                ok: clicked,
+                clicked,
+                message: clicked ? "ChatGPT 임시채팅 버튼 클릭 완료" : "ChatGPT 임시채팅 버튼 클릭 실패",
+                reason: clicked ? null : "ChatGPT 임시채팅 버튼 클릭 실패"
+              });
+            }
+
+            if (host.includes("gemini.google.com")) {
+              const tempChatButtons = queryButtons([
+                "button[data-test-id='temp-chat-button']",
+                "button[aria-label='임시 채팅']"
+              ]);
+
+              if (tempChatButtons.length) {
+                const clicked = clickButtonLikeUser(tempChatButtons[0]);
+                return JSON.stringify({
+                  ok: clicked,
+                  clicked,
+                  message: clicked ? "Gemini 임시채팅 버튼 클릭 완료" : "Gemini 임시채팅 버튼 클릭 실패",
+                  reason: clicked ? null : "Gemini 임시채팅 버튼 클릭 실패"
+                });
+              }
+
+              const menuButtons = queryButtons([
+                "button[data-test-id='side-nav-menu-button']",
+                "button[aria-label='기본 메뉴']"
+              ]);
+
+              if (!menuButtons.length) {
+                return JSON.stringify({ ok: false, reason: "Gemini 메뉴 버튼을 찾지 못했습니다." });
+              }
+
+              const menuClicked = clickButtonLikeUser(menuButtons[0]);
+              if (!menuClicked) {
+                return JSON.stringify({ ok: false, reason: "Gemini 메뉴 버튼 클릭 실패" });
+              }
+
+              return JSON.stringify({
+                ok: false,
+                retry: true,
+                reason: "Gemini 메뉴를 열었지만 임시채팅 버튼을 아직 찾지 못했습니다."
+              });
+            }
+
+            return JSON.stringify({ ok: false, reason: "임시채팅을 지원하지 않는 서비스입니다." });
+          } catch (error) {
+            const reason = error && error.message ? String(error.message) : "임시채팅 버튼 스크립트 오류";
+            return JSON.stringify({ ok: false, reason });
           }
         })();
         """

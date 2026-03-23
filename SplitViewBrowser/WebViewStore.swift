@@ -38,6 +38,11 @@ final class WebViewStore: NSObject, ObservableObject {
         let message: String
     }
 
+    struct TemporaryChatClickResult: Hashable {
+        let clicked: Bool
+        let message: String
+    }
+
     private struct ComposerSendThrottle: Hashable {
         let text: String
         let submit: Bool
@@ -67,6 +72,7 @@ final class WebViewStore: NSObject, ObservableObject {
     private var currentService: AIService?
     private var lastComposerSendThrottle: ComposerSendThrottle?
     private weak var cachedEmbeddedScrollView: NSScrollView?
+    private var pendingClipboardBaselineChangeCount: Int?
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -96,25 +102,11 @@ final class WebViewStore: NSObject, ObservableObject {
 
             let host = (payload.host ?? "").lowercased()
             let trimmed = (payload.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let preferClipboard = host.contains("gemini.google.com") || host.contains("grok.com")
-
-            if preferClipboard {
-                self.captureCopiedAnswerFromClipboard(
-                    urlString: payload.url,
-                    host: payload.host,
-                    fallbackText: trimmed.isEmpty ? nil : trimmed
-                )
-                return
-            }
-
-            if !trimmed.isEmpty {
-                self.publishCopiedAssistantResponse(text: trimmed, urlString: payload.url, source: "dom")
-                return
-            }
-
-            if payload.fallbackClipboard == true {
-                self.captureCopiedAnswerFromClipboard(urlString: payload.url, host: payload.host, fallbackText: nil)
-            }
+            self.captureCopiedAnswerFromClipboard(
+                urlString: payload.url,
+                host: host.isEmpty ? nil : payload.host,
+                fallbackText: trimmed.isEmpty ? nil : trimmed
+            )
         }
 
         contentController.add(answerCopyCaptureBridge, name: Self.answerCopyCaptureMessageName)
@@ -197,6 +189,7 @@ final class WebViewStore: NSObject, ObservableObject {
     private func publishCopiedAssistantResponse(text: String, urlString: String?, source: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        pendingClipboardBaselineChangeCount = nil
 
         lastCopiedAssistantResponse = AssistantCopiedResponse(
             text: trimmed,
@@ -230,13 +223,21 @@ final class WebViewStore: NSObject, ObservableObject {
                 self.publishCopiedAssistantResponse(text: fallbackText, urlString: urlString, source: "dom-fallback")
                 return
             }
+            self.pendingClipboardBaselineChangeCount = nil
             self.logger.log(.warning, category: "Collection", "Clipboard fallback failed for host \(host ?? "unknown")")
         }
     }
 
     @discardableResult
     private func publishCopiedAnswerFromClipboardIfAvailable(urlString: String?) -> Bool {
-        let clipboardText = NSPasteboard.general.string(forType: .string)?
+        let pasteboard = NSPasteboard.general
+        if let baseline = pendingClipboardBaselineChangeCount,
+           pasteboard.changeCount <= baseline
+        {
+            return false
+        }
+
+        let clipboardText = pasteboard.string(forType: .string)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !clipboardText.isEmpty else { return false }
         publishCopiedAssistantResponse(text: clipboardText, urlString: urlString, source: "clipboard")
@@ -442,6 +443,18 @@ final class WebViewStore: NSObject, ObservableObject {
         }
     }
 
+    func triggerTemporaryChat(completion: @escaping (Result<TemporaryChatClickResult, Error>) -> Void) {
+        triggerTemporaryChat(retryCount: 0, completion: completion)
+    }
+
+    func triggerTemporaryChat() async -> Result<TemporaryChatClickResult, Error> {
+        await withCheckedContinuation { continuation in
+            triggerTemporaryChat { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     private func triggerAssistantAnswerCopy(
         targetOffset: Int,
         retryCount: Int,
@@ -462,11 +475,13 @@ final class WebViewStore: NSObject, ObservableObject {
             return
         }
 
+        pendingClipboardBaselineChangeCount = NSPasteboard.general.changeCount
         let js = Self.answerCopyButtonScript(payloadJSON: json)
         webView.evaluateJavaScript(js) { [weak self] value, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let error {
+                    self.pendingClipboardBaselineChangeCount = nil
                     self.logger.log(.warning, category: "Collection", "Failed to execute copy-button script: \(error.localizedDescription)")
                     completion(.failure(error))
                     return
@@ -474,6 +489,7 @@ final class WebViewStore: NSObject, ObservableObject {
 
                 guard let resultJSON = value as? String,
                       let data = resultJSON.data(using: .utf8) else {
+                    self.pendingClipboardBaselineChangeCount = nil
                     let error = NSError(
                         domain: "SplitViewBrowser.WebViewStore",
                         code: 1111,
@@ -519,18 +535,9 @@ final class WebViewStore: NSObject, ObservableObject {
                             code: 1112,
                             userInfo: [NSLocalizedDescriptionKey: payload.reason ?? "복사 버튼을 찾지 못했습니다."]
                         )
+                        self.pendingClipboardBaselineChangeCount = nil
                         completion(.failure(error))
                         return
-                    }
-
-                    let directCapturedText = (payload.capturedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !directCapturedText.isEmpty {
-                        let sourceURL = payload.url ?? self.webView.url?.absoluteString
-                        self.publishCopiedAssistantResponse(
-                            text: directCapturedText,
-                            urlString: sourceURL,
-                            source: "dom-direct"
-                        )
                     }
 
                     completion(
@@ -539,6 +546,75 @@ final class WebViewStore: NSObject, ObservableObject {
                                 clicked: payload.clicked ?? false,
                                 targetOffset: payload.targetOffset ?? targetOffset,
                                 message: payload.message ?? "복사 버튼 클릭 완료"
+                            )
+                        )
+                    )
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    private func triggerTemporaryChat(
+        retryCount: Int,
+        completion: @escaping (Result<TemporaryChatClickResult, Error>) -> Void
+    ) {
+        let js = Self.temporaryChatButtonScriptSource
+        webView.evaluateJavaScript(js) { [weak self] value, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let error {
+                    self.logger.log(.warning, category: "WebView", "Failed to execute temp-chat script: \(error.localizedDescription)")
+                    completion(.failure(error))
+                    return
+                }
+
+                guard let resultJSON = value as? String,
+                      let data = resultJSON.data(using: .utf8) else {
+                    let error = NSError(
+                        domain: "SplitViewBrowser.WebViewStore",
+                        code: 1113,
+                        userInfo: [NSLocalizedDescriptionKey: "임시채팅 실행 결과를 읽을 수 없습니다."]
+                    )
+                    completion(.failure(error))
+                    return
+                }
+
+                struct Payload: Decodable {
+                    let ok: Bool
+                    let clicked: Bool?
+                    let message: String?
+                    let reason: String?
+                    let retry: Bool?
+                }
+
+                do {
+                    let payload = try JSONDecoder().decode(Payload.self, from: data)
+                    guard payload.ok else {
+                        if payload.retry == true, retryCount < 2 {
+                            Task { @MainActor [weak self] in
+                                try? await Task.sleep(nanoseconds: 250_000_000)
+                                guard !Task.isCancelled else { return }
+                                self?.triggerTemporaryChat(retryCount: retryCount + 1, completion: completion)
+                            }
+                            return
+                        }
+
+                        let error = NSError(
+                            domain: "SplitViewBrowser.WebViewStore",
+                            code: 1114,
+                            userInfo: [NSLocalizedDescriptionKey: payload.reason ?? "임시채팅 버튼을 찾지 못했습니다."]
+                        )
+                        completion(.failure(error))
+                        return
+                    }
+
+                    completion(
+                        .success(
+                            TemporaryChatClickResult(
+                                clicked: payload.clicked ?? false,
+                                message: payload.message ?? "임시채팅 버튼 클릭 완료"
                             )
                         )
                     )

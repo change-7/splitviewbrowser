@@ -8,9 +8,9 @@ struct WebPanelView: View {
     @ObservedObject var store: WebViewStore
     let isAnalysisTarget: Bool
     let canClose: Bool
-    let onSetAnalysisTarget: () -> Void
     let onSendCollectedResponsesToPanel: () -> Void
     let onTriggerPageCopy: () -> Void
+    let onTriggerTemporaryChat: () -> Void
     let onClosePanel: () -> Void
 
     var body: some View {
@@ -80,25 +80,26 @@ struct WebPanelView: View {
             .help("Reload")
             .accessibilityLabel("새로고침")
 
-            Button(action: onSetAnalysisTarget) {
-                Image(systemName: "scope")
-                    .foregroundStyle(isAnalysisTarget ? Color.accentColor : Color.primary)
-            }
-            .help(isAnalysisTarget ? "현재 분석 대상 패널" : "이 패널을 분석 대상 패널로 지정")
-            .accessibilityLabel(isAnalysisTarget ? "분석 대상 패널(선택됨)" : "분석 대상 패널로 지정")
-
             Button(action: onSendCollectedResponsesToPanel) {
                 Image(systemName: "paperplane")
                     .foregroundStyle(isAnalysisTarget ? Color.accentColor : Color.primary)
             }
-            .help("수집 답변을 이 패널로 입력/전송")
-            .accessibilityLabel("이 패널로 수집 답변 전송")
+            .help(isAnalysisTarget ? "수집 답변을 이 분석 패널로 입력/전송" : "이 패널을 분석 대상으로 지정하고 수집 답변 입력/전송")
+            .accessibilityLabel(isAnalysisTarget ? "수집 답변을 이 분석 패널로 전송" : "이 패널을 분석 대상으로 지정하고 수집 답변 전송")
 
             Button(action: onTriggerPageCopy) {
                 Image(systemName: "doc.on.doc")
             }
             .help("이 패널의 최신 답변 복사 버튼 클릭")
             .accessibilityLabel("이 패널 최신 답변 복사")
+
+            if supportsTemporaryChat {
+                Button(action: onTriggerTemporaryChat) {
+                    Image(systemName: "message.badge.plus")
+                }
+                .help("임시채팅")
+                .accessibilityLabel("임시채팅")
+            }
 
             if canClose {
                 Button(action: onClosePanel) {
@@ -118,6 +119,10 @@ struct WebPanelView: View {
 
     private var panelBorderLineWidth: CGFloat {
         isAnalysisTarget ? 2 : 1
+    }
+
+    private var supportsTemporaryChat: Bool {
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
     }
 
     private func runtimeIssueOverlay(_ issue: WebViewStore.RuntimeIssue) -> some View {
