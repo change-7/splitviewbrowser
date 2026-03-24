@@ -55,12 +55,16 @@ struct ContentView: View {
             if !collectionStatusMessage.isEmpty {
                 Text(collectionStatusMessage)
                     .font(.caption)
+                    .lineLimit(1)
                     .foregroundStyle(collectionStatusIsError ? Color.red : Color.primary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(.thinMaterial, in: Capsule(style: .continuous))
-                    .padding(.top, 6)
-                    .padding(.trailing, 12)
+                    .padding(.top, -22)
+                    .padding(.trailing, 4)
+                    .help(collectionStatusMessage)
+                    .accessibilityLabel(collectionStatusMessage)
+                    .allowsHitTesting(false)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -641,12 +645,6 @@ struct ContentView: View {
     private func triggerTemporaryChat(for panelIndex: Int) {
         guard panelIndex >= 0, panelIndex < appState.panelCount else {
             setCollectionStatus("패널 인덱스가 유효하지 않습니다", isError: true)
-            return
-        }
-
-        let service = appState.service(at: panelIndex)
-        guard service.id == AIService.chatGPT.id || service.id == AIService.gemini.id else {
-            setCollectionStatus("이 서비스는 임시채팅을 지원하지 않습니다", isError: true)
             return
         }
 

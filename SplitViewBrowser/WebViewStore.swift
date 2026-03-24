@@ -43,6 +43,18 @@ final class WebViewStore: NSObject, ObservableObject {
         let message: String
     }
 
+    enum TemporaryChatState: Hashable {
+        case unavailable
+        case inactive
+        case active
+        case unknown
+
+        var isActive: Bool {
+            if case .active = self { return true }
+            return false
+        }
+    }
+
     private struct ComposerSendThrottle: Hashable {
         let text: String
         let submit: Bool
@@ -52,7 +64,6 @@ final class WebViewStore: NSObject, ObservableObject {
     struct AssistantCopiedResponse: Identifiable, Hashable {
         let id = UUID()
         let text: String
-        let urlString: String?
         let capturedAt: Date
     }
 
@@ -62,6 +73,7 @@ final class WebViewStore: NSObject, ObservableObject {
     @Published private(set) var isLoadingPage = false
     @Published private(set) var runtimeIssue: RuntimeIssue?
     @Published private(set) var lastCopiedAssistantResponse: AssistantCopiedResponse?
+    @Published private(set) var temporaryChatState: TemporaryChatState = .unavailable
 
     private var hasLoadedHome = false
     private var observations: [NSKeyValueObservation] = []
@@ -73,6 +85,8 @@ final class WebViewStore: NSObject, ObservableObject {
     private var lastComposerSendThrottle: ComposerSendThrottle?
     private weak var cachedEmbeddedScrollView: NSScrollView?
     private var pendingClipboardBaselineChangeCount: Int?
+    private var temporaryChatStateRefreshTask: Task<Void, Never>?
+    private var inferredGeminiTemporaryChatActive = false
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -90,9 +104,7 @@ final class WebViewStore: NSObject, ObservableObject {
             guard let self else { return }
             struct Payload: Decodable {
                 let text: String?
-                let url: String?
                 let host: String?
-                let fallbackClipboard: Bool?
             }
 
             guard let data = payloadJSON.data(using: .utf8),
@@ -103,7 +115,6 @@ final class WebViewStore: NSObject, ObservableObject {
             let host = (payload.host ?? "").lowercased()
             let trimmed = (payload.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             self.captureCopiedAnswerFromClipboard(
-                urlString: payload.url,
                 host: host.isEmpty ? nil : payload.host,
                 fallbackText: trimmed.isEmpty ? nil : trimmed
             )
@@ -143,6 +154,14 @@ final class WebViewStore: NSObject, ObservableObject {
             self.runtimeIssue = nil
             self.configureWebViewScrollBehavior()
             self.applyHostLayoutFixes()
+            if self.currentService?.id == AIService.chatGPT.id {
+                self.refreshTemporaryChatStateIfSupported()
+                self.startTemporaryChatStatePollingIfNeeded()
+            } else if self.currentService?.id == AIService.gemini.id {
+                self.temporaryChatState = .inactive
+                self.temporaryChatStateRefreshTask?.cancel()
+                self.temporaryChatStateRefreshTask = nil
+            }
         }
         navigationProxy.didFailNavigation = { [weak self] url, error in
             self?.handleNavigationError(url: url, error: error)
@@ -186,25 +205,23 @@ final class WebViewStore: NSObject, ObservableObject {
         return currentService.trustsHost(host)
     }
 
-    private func publishCopiedAssistantResponse(text: String, urlString: String?, source: String) {
+    private func publishCopiedAssistantResponse(text: String, source: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         pendingClipboardBaselineChangeCount = nil
 
         lastCopiedAssistantResponse = AssistantCopiedResponse(
             text: trimmed,
-            urlString: urlString,
             capturedAt: Date()
         )
         logger.log(.info, category: "Collection", "Detected page answer copy via \(source) (\(trimmed.count) chars)")
     }
 
     private func captureCopiedAnswerFromClipboard(
-        urlString: String?,
         host: String?,
         fallbackText: String?
     ) {
-        if publishCopiedAnswerFromClipboardIfAvailable(urlString: urlString) {
+        if publishCopiedAnswerFromClipboardIfAvailable() {
             return
         }
 
@@ -214,13 +231,13 @@ final class WebViewStore: NSObject, ObservableObject {
                 let delay = 0.12 + (Double(attempt) * 0.08)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                if self.publishCopiedAnswerFromClipboardIfAvailable(urlString: urlString) {
+                if self.publishCopiedAnswerFromClipboardIfAvailable() {
                     return
                 }
             }
 
             if let fallbackText, !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                self.publishCopiedAssistantResponse(text: fallbackText, urlString: urlString, source: "dom-fallback")
+                self.publishCopiedAssistantResponse(text: fallbackText, source: "dom-fallback")
                 return
             }
             self.pendingClipboardBaselineChangeCount = nil
@@ -229,7 +246,7 @@ final class WebViewStore: NSObject, ObservableObject {
     }
 
     @discardableResult
-    private func publishCopiedAnswerFromClipboardIfAvailable(urlString: String?) -> Bool {
+    private func publishCopiedAnswerFromClipboardIfAvailable() -> Bool {
         let pasteboard = NSPasteboard.general
         if let baseline = pendingClipboardBaselineChangeCount,
            pasteboard.changeCount <= baseline
@@ -240,7 +257,7 @@ final class WebViewStore: NSObject, ObservableObject {
         let clipboardText = pasteboard.string(forType: .string)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !clipboardText.isEmpty else { return false }
-        publishCopiedAssistantResponse(text: clipboardText, urlString: urlString, source: "clipboard")
+        publishCopiedAssistantResponse(text: clipboardText, source: "clipboard")
         return true
     }
 
@@ -264,6 +281,14 @@ final class WebViewStore: NSObject, ObservableObject {
         currentService = service
         hasLoadedHome = true
         clearRuntimeIssue()
+        inferredGeminiTemporaryChatActive = false
+        temporaryChatState = Self.supportsTemporaryChat(service: service) ? .inactive : .unavailable
+        if Self.supportsTemporaryChat(service: service) {
+            startTemporaryChatStatePollingIfNeeded()
+        } else {
+            temporaryChatStateRefreshTask?.cancel()
+            temporaryChatStateRefreshTask = nil
+        }
         isLoadingPage = true
         currentURLString = service.homeURL.absoluteString
         logger.log(.info, category: "WebView", "Load home: \(service.title)")
@@ -272,6 +297,15 @@ final class WebViewStore: NSObject, ObservableObject {
 
     func reload() {
         clearRuntimeIssue()
+        if let currentService, Self.supportsTemporaryChat(service: currentService) {
+            temporaryChatState = currentService.id == AIService.chatGPT.id
+                ? .unknown
+                : (inferredGeminiTemporaryChatActive ? .active : .inactive)
+            startTemporaryChatStatePollingIfNeeded()
+        } else {
+            temporaryChatStateRefreshTask?.cancel()
+            temporaryChatStateRefreshTask = nil
+        }
         isLoadingPage = true
         webView.reload()
     }
@@ -295,6 +329,10 @@ final class WebViewStore: NSObject, ObservableObject {
         guard !hasPreparedForRelease else { return }
         hasPreparedForRelease = true
         cachedEmbeddedScrollView = nil
+        inferredGeminiTemporaryChatActive = false
+        temporaryChatState = .unavailable
+        temporaryChatStateRefreshTask?.cancel()
+        temporaryChatStateRefreshTask = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.answerCopyCaptureMessageName)
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -506,8 +544,6 @@ final class WebViewStore: NSObject, ObservableObject {
                     let message: String?
                     let reason: String?
                     let retry: Bool?
-                    let capturedText: String?
-                    let url: String?
                 }
 
                 do {
@@ -618,9 +654,117 @@ final class WebViewStore: NSObject, ObservableObject {
                             )
                         )
                     )
+                    if payload.clicked == true {
+                        if self.currentService?.id == AIService.gemini.id {
+                            self.inferredGeminiTemporaryChatActive.toggle()
+                            self.temporaryChatState = self.inferredGeminiTemporaryChatActive ? .active : .inactive
+                            self.scheduleTemporaryChatStateRefresh()
+                        } else {
+                            self.temporaryChatState = .unknown
+                            self.scheduleTemporaryChatStateRefresh()
+                        }
+                    }
                 } catch {
                     completion(.failure(error))
                 }
+            }
+        }
+    }
+
+    private static func supportsTemporaryChat(service: AIService) -> Bool {
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
+    }
+
+    private func refreshTemporaryChatStateIfSupported() {
+        guard let currentService, Self.supportsTemporaryChat(service: currentService) else {
+            temporaryChatState = .unavailable
+            return
+        }
+
+        let isGeminiService = currentService.id == AIService.gemini.id
+
+        let js = Self.temporaryChatStateScriptSource
+        webView.evaluateJavaScript(js) { [weak self] value, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if error != nil {
+                    if isGeminiService {
+                        self.temporaryChatState = self.inferredGeminiTemporaryChatActive ? .active : .inactive
+                    } else if self.temporaryChatState == .unavailable || self.temporaryChatState == .unknown {
+                        self.temporaryChatState = .inactive
+                    }
+                    return
+                }
+
+                guard let resultJSON = value as? String,
+                      let data = resultJSON.data(using: .utf8) else {
+                    return
+                }
+
+                struct Payload: Decodable {
+                    let supported: Bool
+                    let active: Bool?
+                }
+
+                guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
+                    return
+                }
+
+                guard payload.supported else {
+                    if isGeminiService {
+                        self.inferredGeminiTemporaryChatActive = false
+                    }
+                    self.temporaryChatState = .unavailable
+                    return
+                }
+
+                if isGeminiService {
+                    if let active = payload.active {
+                        self.inferredGeminiTemporaryChatActive = active
+                    }
+                    self.temporaryChatState = self.inferredGeminiTemporaryChatActive ? .active : .inactive
+                } else if let active = payload.active {
+                    self.temporaryChatState = active ? .active : .inactive
+                } else {
+                    self.temporaryChatState = .unknown
+                }
+            }
+        }
+    }
+
+    private func scheduleTemporaryChatStateRefresh() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.refreshTemporaryChatStateIfSupported()
+        }
+    }
+
+    private func startTemporaryChatStatePollingIfNeeded() {
+        guard let currentService, Self.supportsTemporaryChat(service: currentService), !hasPreparedForRelease else {
+            temporaryChatStateRefreshTask?.cancel()
+            temporaryChatStateRefreshTask = nil
+            return
+        }
+
+        guard currentService.id == AIService.chatGPT.id else {
+            temporaryChatStateRefreshTask?.cancel()
+            temporaryChatStateRefreshTask = nil
+            return
+        }
+
+        temporaryChatStateRefreshTask?.cancel()
+        temporaryChatStateRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                guard let currentService = self.currentService,
+                      Self.supportsTemporaryChat(service: currentService),
+                      !self.hasPreparedForRelease else {
+                    return
+                }
+                self.refreshTemporaryChatStateIfSupported()
             }
         }
     }

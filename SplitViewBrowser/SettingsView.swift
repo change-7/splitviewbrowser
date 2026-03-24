@@ -154,7 +154,7 @@ struct SettingsView: View {
         GroupBox("Panel Width Policy") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Each panel is fixed in the mobile range: 360pt to 430pt.")
-                Text("Minimum panel width: 430pt (expands when window width grows)")
+                Text("Panels stay within that range and the window scrolls horizontally if there is not enough width.")
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -267,7 +267,6 @@ struct SettingsView: View {
                                         Image(systemName: "trash")
                                     }
                                     .buttonStyle(.borderless)
-                                    .disabled(service.isBuiltIn)
                                     .accessibilityLabel("커스텀 사이트 삭제")
                                 }
                                 .padding(.vertical, 8)
@@ -329,7 +328,6 @@ struct SettingsView: View {
                                 onDelete: { removePreset(preset) },
                                 onRename: { newName in renamePreset(preset, newName: newName) }
                             )
-                            .environmentObject(appState)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -458,7 +456,6 @@ struct SettingsView: View {
 }
 
 private struct PresetEditorRow: View {
-    @EnvironmentObject private var appState: AppState
     let preset: ViewPreset
     let isSelected: Bool
     let canMoveUp: Bool

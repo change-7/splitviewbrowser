@@ -61,6 +61,7 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
     var text: String
     var tags: [String]
     var isFavorite: Bool
+    var isBuiltIn: Bool
     var updatedAt: Date?
 
     init(
@@ -69,6 +70,7 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
         text: String,
         tags: [String] = [],
         isFavorite: Bool = false,
+        isBuiltIn: Bool = false,
         updatedAt: Date? = nil
     ) {
         self.id = id
@@ -76,6 +78,7 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
         self.text = text
         self.tags = tags
         self.isFavorite = isFavorite
+        self.isBuiltIn = isBuiltIn
         self.updatedAt = updatedAt
     }
 
@@ -85,6 +88,7 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
         case text
         case tags
         case isFavorite
+        case isBuiltIn
         case updatedAt
     }
 
@@ -95,6 +99,7 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
         text = try container.decode(String.self, forKey: .text)
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        isBuiltIn = try container.decodeIfPresent(Bool.self, forKey: .isBuiltIn) ?? false
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
 }
@@ -102,9 +107,6 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
 struct CollectedPanelResponse: Identifiable, Hashable {
     var id: Int { panelIndex }
     let panelIndex: Int
-    let serviceID: String
-    let serviceTitle: String
-    let sourceURLString: String?
     let text: String
     let capturedAt: Date
 }
@@ -146,11 +148,45 @@ final class AppState: ObservableObject {
         static let maxHiddenStores = 3
     }
 
-    private static let responseTimestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
+    private static let builtInAnalysisPromptTemplateSeedVersion = 2
+
+    static let builtInAnalysisPromptTemplates: [SavedPrompt] = [
+        SavedPrompt(
+            id: "builtin-prompt-integrated-answer",
+            title: "통합 답변형",
+            text: "아래 여러 AI 답변을 비교해 중복은 제거하고, 더 신뢰할 수 있는 내용을 우선하여 하나의 자연스럽고 정확한 최종 답변으로 통합해줘. 비교 과정은 길게 쓰지 말고 최종 답변 중심으로 작성해줘.",
+            tags: ["비교", "통합"],
+            isBuiltIn: true
+        ),
+        SavedPrompt(
+            id: "builtin-prompt-common-diff",
+            title: "공통점/차이점 정리형",
+            text: "아래 답변들의 공통점과 차이점만 간단히 정리해줘. 같은 내용은 묶고, 서로 충돌하는 주장만 따로 표시해줘.",
+            tags: ["비교", "정리"],
+            isBuiltIn: true
+        ),
+        SavedPrompt(
+            id: "builtin-prompt-fact-first",
+            title: "팩트 우선 검증형",
+            text: "아래 답변들 중 날짜, 숫자, 고유명사, 정책, 최신 정보처럼 검증이 필요한 주장만 먼저 구분하고, 불확실한 내용은 단정하지 말아줘. 신뢰도 높은 근거를 우선해 최종 정리해줘.",
+            tags: ["검증", "팩트"],
+            isBuiltIn: true
+        ),
+        SavedPrompt(
+            id: "builtin-prompt-practical-conclusion",
+            title: "실무 결론형",
+            text: "아래 답변들을 비교해 실무적으로 바로 적용 가능한 결론만 우선 정리해줘. 설명보다 실행 순서와 선택 기준을 분명하게 적어줘.",
+            tags: ["실무", "결론"],
+            isBuiltIn: true
+        ),
+        SavedPrompt(
+            id: "builtin-prompt-compressed-summary",
+            title: "압축 요약형",
+            text: "아래 여러 답변을 합쳐 핵심만 남긴 짧은 최종 요약본으로 다시 작성해줘. 중복 표현은 제거하고, 중요한 차이만 남겨줘.",
+            tags: ["요약", "압축"],
+            isBuiltIn: true
+        )
+    ]
 
     enum SiteValidationError: LocalizedError {
         case emptyTitle
@@ -204,6 +240,7 @@ final class AppState: ObservableObject {
         static let presets = "presets"
         static let savedPrompts = "savedPrompts"
         static let selectedAnalysisPromptID = "selectedAnalysisPromptID"
+        static let builtInAnalysisPromptTemplatesSeedVersion = "builtInAnalysisPromptTemplatesSeedVersion"
         static let activePresetID = "activePresetID"
         static let webViewRetentionMode = "webViewRetentionMode"
         static let twoPanelCrossSendEnabled = "twoPanelCrossSendEnabled"
@@ -264,6 +301,7 @@ final class AppState: ObservableObject {
         analysisTargetPanelIndex = max(0, initialPanelCount - 1)
         servicesByID = Dictionary(uniqueKeysWithValues: restoredServices.map { ($0.id, $0) })
         savedPromptsByID = Dictionary(uniqueKeysWithValues: savedPrompts.map { ($0.id, $0) })
+        seedBuiltInAnalysisPromptTemplatesIfNeeded()
 
         normalizeRestoredStateAndPersistIfNeeded(forcePersist: didClampPanelCount)
         configureMemoryPressureMonitoring()
@@ -404,6 +442,11 @@ final class AppState: ObservableObject {
         selectedAnalysisPrompt?.title ?? "기본(내장)"
     }
 
+    var hasMissingBuiltInAnalysisPromptTemplates: Bool {
+        let existingIDs = Set(savedPrompts.map(\.id))
+        return Self.builtInAnalysisPromptTemplates.contains { !existingIDs.contains($0.id) }
+    }
+
     func collectedResponse(for panelIndex: Int) -> CollectedPanelResponse? {
         collectedResponsesByPanel[panelIndex]
     }
@@ -411,7 +454,6 @@ final class AppState: ObservableObject {
     func collectPanelResponse(
         panelIndex: Int,
         service: AIService,
-        sourceURLString: String?,
         text: String
     ) {
         guard panelIndex >= 0, panelIndex < Self.maxPanels else { return }
@@ -421,9 +463,6 @@ final class AppState: ObservableObject {
         var updated = collectedResponsesByPanel
         updated[panelIndex] = CollectedPanelResponse(
             panelIndex: panelIndex,
-            serviceID: service.id,
-            serviceTitle: service.title,
-            sourceURLString: sourceURLString,
             text: trimmed,
             capturedAt: Date()
         )
@@ -634,6 +673,7 @@ final class AppState: ObservableObject {
             text: trimmedText,
             tags: normalizedTags,
             isFavorite: isFavorite,
+            isBuiltIn: false,
             updatedAt: Date()
         )
         savedPrompts.append(prompt)
@@ -672,6 +712,7 @@ final class AppState: ObservableObject {
             text: trimmedText,
             tags: normalizedTags,
             isFavorite: favoriteValue,
+            isBuiltIn: savedPrompts[existingIndex].isBuiltIn,
             updatedAt: Date()
         )
         if savedPrompts[existingIndex] != updatedPrompt {
@@ -705,6 +746,37 @@ final class AppState: ObservableObject {
         }
         persistSavedPrompts()
         logger.log(.info, category: "Prompt", "Removed prompt \(removed.title)")
+    }
+
+    @discardableResult
+    func duplicateSavedPrompt(id: String) throws -> SavedPrompt {
+        guard let prompt = savedPromptsByID[id] else {
+            throw PromptValidationError.promptNotFound
+        }
+
+        let duplicate = SavedPrompt(
+            title: uniquePromptTitle(from: "\(prompt.title) Copy"),
+            text: prompt.text,
+            tags: prompt.tags,
+            isFavorite: false,
+            isBuiltIn: false,
+            updatedAt: Date()
+        )
+        savedPrompts.append(duplicate)
+        savedPromptsByID[duplicate.id] = duplicate
+        persistSavedPrompts()
+        logger.log(.info, category: "Prompt", "Duplicated prompt \(prompt.title)")
+        return duplicate
+    }
+
+    @discardableResult
+    func restoreBuiltInAnalysisPromptTemplates() -> Int {
+        let changeCount = upsertBuiltInAnalysisPromptTemplates()
+        guard changeCount > 0 else { return 0 }
+        writeSavedPromptsToDefaults()
+        defaults.set(Self.builtInAnalysisPromptTemplateSeedVersion, forKey: DefaultsKey.builtInAnalysisPromptTemplatesSeedVersion)
+        logger.log(.info, category: "Prompt", "Restored \(changeCount) built-in prompt templates")
+        return changeCount
     }
 
     func consumePendingPresetWindowSize() {
@@ -1023,6 +1095,7 @@ final class AppState: ObservableObject {
                 text: trimmedText,
                 tags: normalizedPromptTags(prompt.tags),
                 isFavorite: prompt.isFavorite,
+                isBuiltIn: prompt.isBuiltIn,
                 updatedAt: prompt.updatedAt
             )
             if updated != prompt {
@@ -1201,9 +1274,6 @@ final class AppState: ObservableObject {
             guard newIndex >= 0, newIndex < panelCount else { continue }
             updated[newIndex] = CollectedPanelResponse(
                 panelIndex: newIndex,
-                serviceID: response.serviceID,
-                serviceTitle: response.serviceTitle,
-                sourceURLString: response.sourceURLString,
                 text: response.text,
                 capturedAt: response.capturedAt
             )
@@ -1550,6 +1620,51 @@ final class AppState: ObservableObject {
             return selectedText
         }
         return Self.defaultAnalysisPromptHeader
+    }
+
+    private func seedBuiltInAnalysisPromptTemplatesIfNeeded() {
+        let storedVersion = defaults.object(forKey: DefaultsKey.builtInAnalysisPromptTemplatesSeedVersion) as? Int ?? 0
+        guard storedVersion < Self.builtInAnalysisPromptTemplateSeedVersion else { return }
+
+        let changeCount = upsertBuiltInAnalysisPromptTemplates()
+        if changeCount > 0 {
+            writeSavedPromptsToDefaults()
+            logger.log(.info, category: "Prompt", "Seeded \(changeCount) built-in prompt templates")
+        }
+
+        defaults.set(Self.builtInAnalysisPromptTemplateSeedVersion, forKey: DefaultsKey.builtInAnalysisPromptTemplatesSeedVersion)
+    }
+
+    private func upsertBuiltInAnalysisPromptTemplates() -> Int {
+        var changeCount = 0
+
+        for template in Self.builtInAnalysisPromptTemplates {
+            if let existingIndex = savedPrompts.firstIndex(where: { $0.id == template.id }) {
+                let existing = savedPrompts[existingIndex]
+                let updated = SavedPrompt(
+                    id: existing.id,
+                    title: template.title,
+                    text: template.text,
+                    tags: template.tags,
+                    isFavorite: existing.isFavorite,
+                    isBuiltIn: true,
+                    updatedAt: existing.updatedAt
+                )
+                if existing != updated {
+                    savedPrompts[existingIndex] = updated
+                    changeCount += 1
+                }
+            } else {
+                savedPrompts.append(template)
+                changeCount += 1
+            }
+        }
+
+        if changeCount > 0 {
+            rebuildSavedPromptIndex()
+        }
+
+        return changeCount
     }
 
     private static let defaultAnalysisPromptHeader = """

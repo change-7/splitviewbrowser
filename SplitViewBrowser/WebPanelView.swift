@@ -95,10 +95,11 @@ struct WebPanelView: View {
 
             if supportsTemporaryChat {
                 Button(action: onTriggerTemporaryChat) {
-                    Image(systemName: "message.badge.plus")
+                    Image(systemName: showsTemporaryChatAsActive ? "plus.circle.fill" : "plus.circle")
+                        .foregroundStyle(showsTemporaryChatAsActive ? Color.accentColor : Color.primary)
                 }
-                .help("임시채팅")
-                .accessibilityLabel("임시채팅")
+                .help(temporaryChatButtonHelp)
+                .accessibilityLabel(temporaryChatAccessibilityLabel)
             }
 
             if canClose {
@@ -123,6 +124,48 @@ struct WebPanelView: View {
 
     private var supportsTemporaryChat: Bool {
         service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
+    }
+
+    private var supportsReliableTemporaryChatState: Bool {
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
+    }
+
+    private var showsTemporaryChatAsActive: Bool {
+        supportsReliableTemporaryChatState && store.temporaryChatState.isActive
+    }
+
+    private var temporaryChatButtonHelp: String {
+        if !supportsReliableTemporaryChatState {
+            return "임시채팅"
+        }
+
+        switch store.temporaryChatState {
+        case .active:
+            return "임시채팅 활성 상태"
+        case .inactive:
+            return "임시채팅 시작"
+        case .unknown:
+            return "임시채팅 상태 확인 중"
+        case .unavailable:
+            return "임시채팅"
+        }
+    }
+
+    private var temporaryChatAccessibilityLabel: String {
+        if !supportsReliableTemporaryChatState {
+            return "임시채팅"
+        }
+
+        switch store.temporaryChatState {
+        case .active:
+            return "임시채팅 활성 상태"
+        case .inactive:
+            return "임시채팅 시작"
+        case .unknown:
+            return "임시채팅 상태 확인 중"
+        case .unavailable:
+            return "임시채팅"
+        }
     }
 
     private func runtimeIssueOverlay(_ issue: WebViewStore.RuntimeIssue) -> some View {
@@ -187,7 +230,6 @@ struct WebPanelView: View {
         appState.collectPanelResponse(
             panelIndex: panelIndex,
             service: service,
-            sourceURLString: copied.urlString,
             text: copied.text
         )
     }

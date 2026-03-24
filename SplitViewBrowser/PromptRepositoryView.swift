@@ -98,7 +98,7 @@ struct PromptRepositoryView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            GroupBox("저장된 프롬프트") {
+            GroupBox {
                 if appState.savedPrompts.isEmpty {
                     Text("저장된 프롬프트가 없습니다.")
                         .foregroundStyle(.secondary)
@@ -147,6 +147,10 @@ struct PromptRepositoryView: View {
                                         HStack(spacing: 6) {
                                             Text(prompt.title)
                                                 .lineLimit(1)
+
+                                            if prompt.isBuiltIn {
+                                                builtInBadge
+                                            }
 
                                             if prompt.isFavorite {
                                                 Image(systemName: "star.fill")
@@ -199,6 +203,15 @@ struct PromptRepositoryView: View {
                                     .help("Copy")
                                     .accessibilityLabel("프롬프트 복사")
 
+                                    Button {
+                                        duplicatePrompt(prompt)
+                                    } label: {
+                                        Image(systemName: "plus.square.on.square")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .help("Duplicate")
+                                    .accessibilityLabel("프롬프트 복제")
+
                                     Toggle("기본", isOn: analysisPromptSelectionBinding(for: prompt))
                                     .toggleStyle(.checkbox)
                                     .controlSize(.small)
@@ -222,6 +235,17 @@ struct PromptRepositoryView: View {
                     }
                         .frame(maxHeight: 420)
                     }
+                }
+            } label: {
+                HStack {
+                    Text("저장된 프롬프트")
+                    Spacer()
+                    Button("기본 템플릿 동기화") {
+                        restoreBuiltInTemplates()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .accessibilityLabel("기본 템플릿 동기화")
                 }
             }
 
@@ -270,6 +294,17 @@ struct PromptRepositoryView: View {
         copiedPromptID = prompt.id
         statusMessage = "\"\(prompt.title)\" 복사됨"
         statusIsError = false
+    }
+
+    private func duplicatePrompt(_ prompt: SavedPrompt) {
+        do {
+            let duplicated = try appState.duplicateSavedPrompt(id: prompt.id)
+            statusMessage = "\"\(duplicated.title)\" 복제됨"
+            statusIsError = false
+        } catch {
+            statusMessage = error.localizedDescription
+            statusIsError = true
+        }
     }
 
     private func removePrompt(_ prompt: SavedPrompt) {
@@ -322,6 +357,17 @@ struct PromptRepositoryView: View {
         promptDraftIsFavorite = false
         if clearStatus {
             statusMessage = ""
+            statusIsError = false
+        }
+    }
+
+    private func restoreBuiltInTemplates() {
+        let restoredCount = appState.restoreBuiltInAnalysisPromptTemplates()
+        if restoredCount > 0 {
+            statusMessage = "기본 템플릿 \(restoredCount)개 반영됨"
+            statusIsError = false
+        } else {
+            statusMessage = "기본 템플릿이 이미 최신 상태입니다"
             statusIsError = false
         }
     }
@@ -396,6 +442,18 @@ struct PromptRepositoryView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("태그 필터 \(title)")
+    }
+
+    private var builtInBadge: some View {
+        Text("내장")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
     }
 
     private enum PromptSortMode: String, CaseIterable, Identifiable {

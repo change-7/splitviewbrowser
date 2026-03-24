@@ -27,7 +27,6 @@ extension WebViewStore {
               if (handlers && handlers[answerCopyHandlerName]) {
                 handlers[answerCopyHandlerName].postMessage(JSON.stringify({
                   text: trimmed || null,
-                  url: location.href,
                   host: location.hostname || null,
                   fallbackClipboard
                 }));
@@ -516,7 +515,7 @@ extension WebViewStore {
               return true;
             };
 
-            const performCopyClick = (target, targetIndex, preCapturedText = "") => {
+            const performCopyClick = (target, targetIndex) => {
               if (!(target instanceof HTMLElement)) {
                 return JSON.stringify({ ok: false, reason: "대상 복사 버튼을 선택하지 못했습니다." });
               }
@@ -526,9 +525,7 @@ extension WebViewStore {
                 ok: true,
                 clicked: true,
                 targetOffset: targetIndex,
-                message: targetIndex === 0 ? "최신 답변 복사 버튼 클릭 완료" : "직전 답변 복사 버튼 클릭 완료",
-                capturedText: preCapturedText || extractCapturedText(target),
-                url: location.href
+                message: targetIndex === 0 ? "최신 답변 복사 버튼 클릭 완료" : "직전 답변 복사 버튼 클릭 완료"
               });
             };
 
@@ -629,7 +626,6 @@ extension WebViewStore {
 
               const targetIndex = Math.min(targetOffset, Math.max(0, orderedMoreButtons.length - 1));
               const targetMoreButton = orderedMoreButtons[targetIndex];
-              const preCapturedText = extractCapturedText(targetMoreButton);
               clickButtonLikeUser(targetMoreButton);
 
               const menuCopyCandidates = uniqueElements(
@@ -660,7 +656,7 @@ extension WebViewStore {
                 });
               }
 
-              return performCopyClick(menuCopyCandidates[0], targetIndex, preCapturedText);
+              return performCopyClick(menuCopyCandidates[0], targetIndex);
             }
 
             const looksLikeCopyButton = (button) => {
@@ -1410,7 +1406,9 @@ extension WebViewStore {
             if (host.includes("openai.com") || host.includes("chatgpt.com")) {
               const candidates = queryButtons([
                 "button[aria-label='임시 채팅 켜기']",
-                "button[aria-label*='임시 채팅' i]"
+                "button[aria-label*='임시 채팅' i]",
+                "button[aria-label='Turn on temporary chat']",
+                "button[aria-label*='temporary chat' i]"
               ]);
 
               if (!candidates.length) {
@@ -1467,6 +1465,100 @@ extension WebViewStore {
           } catch (error) {
             const reason = error && error.message ? String(error.message) : "임시채팅 버튼 스크립트 오류";
             return JSON.stringify({ ok: false, reason });
+          }
+        })();
+        """
+    }
+
+    static var temporaryChatStateScriptSource: String {
+        """
+        (() => {
+          try {
+            const host = (location.hostname || "").toLowerCase();
+
+            const isVisible = (element) => {
+              if (!(element instanceof Element)) return false;
+              const style = window.getComputedStyle(element);
+              if (!style) return true;
+              if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+              const rect = element.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            };
+
+            const resolveButton = (element) => {
+              if (!(element instanceof Element)) return null;
+              if (element.matches("button,[role='button']")) return element;
+              return element.closest("button,[role='button']");
+            };
+
+            const uniqueElements = (elements) => {
+              const seen = new Set();
+              return elements.filter((element) => {
+                if (!(element instanceof Element)) return false;
+                if (seen.has(element)) return false;
+                seen.add(element);
+                return true;
+              });
+            };
+
+            const queryButtons = (selectors) =>
+              uniqueElements(
+                selectors.flatMap((selector) => {
+                  try {
+                    return Array.from(document.querySelectorAll(selector)).map(resolveButton);
+                  } catch (_) {
+                    return [];
+                  }
+                })
+              )
+                .filter((button) => button instanceof Element)
+                .filter((button) => isVisible(button));
+
+            const hasPressedState = (button) => {
+              if (!(button instanceof Element)) return false;
+              return button.getAttribute("aria-pressed") === "true" || button.getAttribute("aria-checked") === "true";
+            };
+
+            if (host.includes("openai.com") || host.includes("chatgpt.com")) {
+              const turnOnButtons = queryButtons([
+                "button[aria-label='임시 채팅 켜기']",
+                "button[aria-label*='임시 채팅 켜' i]",
+                "button[aria-label='Turn on temporary chat']",
+                "button[aria-label*='turn on temporary chat' i]"
+              ]);
+
+              if (turnOnButtons.length) {
+                return JSON.stringify({ supported: true, active: false });
+              }
+
+              const activeButtons = queryButtons([
+                "button[aria-label*='임시 채팅' i]",
+                "button[aria-label*='temporary chat' i]"
+              ]);
+
+              if (activeButtons.length) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
+              return JSON.stringify({ supported: true, active: null });
+            }
+
+            if (host.includes("gemini.google.com")) {
+              const tempChatButtons = queryButtons([
+                "button[data-test-id='temp-chat-button']",
+                "button[aria-label='임시 채팅']"
+              ]);
+
+              if (!tempChatButtons.length) {
+                return JSON.stringify({ supported: true, active: null });
+              }
+
+              return JSON.stringify({ supported: true, active: false });
+            }
+
+            return JSON.stringify({ supported: false, active: null });
+          } catch (_) {
+            return JSON.stringify({ supported: false, active: null });
           }
         })();
         """
