@@ -67,6 +67,11 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay {
+            if isQuickComposePresented {
+                quickComposeOverlayView
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             QuickComposeTargetBarView(
                 selectedPanelIndices: $quickComposeTargetPanels,
@@ -91,16 +96,6 @@ struct ContentView: View {
         }
         .onDisappear {
             collectionStatusClearTask?.cancel()
-        }
-        .popover(isPresented: $isQuickComposePresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-            QuickComposePopoverView(
-                text: $quickComposeText,
-                selectedPanelIndices: $quickComposeTargetPanels,
-                totalCount: appState.panelCount,
-                onSubmit: sendQuickComposeTextToSelectedPanels,
-                onClose: { isQuickComposePresented = false }
-            )
-            .frame(minWidth: 620, minHeight: 420)
         }
         .popover(isPresented: $isSettingsPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             SettingsView()
@@ -211,6 +206,41 @@ struct ContentView: View {
                 Image(systemName: "plus.rectangle.on.rectangle")
             }
         }
+    }
+
+    private var quickComposeOverlayView: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.12)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isQuickComposePresented = false
+                    }
+
+                QuickComposePopoverView(
+                    text: $quickComposeText,
+                    selectedPanelIndices: $quickComposeTargetPanels,
+                    totalCount: appState.panelCount,
+                    onSubmit: sendQuickComposeTextToSelectedPanels,
+                    onClose: { isQuickComposePresented = false }
+                )
+                .frame(
+                    width: min(max(proxy.size.width - 32, 620), 860),
+                    height: min(max(proxy.size.height - 64, 420), 620)
+                )
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.12))
+                )
+                .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 20)
+                .onTapGesture { }
+            }
+        }
+        .transition(.opacity)
+        .zIndex(10)
     }
 
     private var presetToolbarGroupView: some View {
