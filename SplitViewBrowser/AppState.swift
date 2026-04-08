@@ -1254,6 +1254,7 @@ final class AppState: ObservableObject {
             AIService.chatGPT.id,
             AIService.gemini.id,
             AIService.perplexity.id,
+            AIService.claude.id,
             AIService.grok.id,
         ]
 

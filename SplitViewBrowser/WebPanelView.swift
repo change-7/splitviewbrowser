@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 struct WebPanelView: View {
     @EnvironmentObject private var appState: AppState
@@ -25,6 +26,11 @@ struct WebPanelView: View {
                 if let issue = store.runtimeIssue {
                     runtimeIssueOverlay(issue)
                         .padding(12)
+                }
+
+                if let popupWebView = store.popupWebView {
+                    popupWebViewOverlay(popupWebView)
+                        .padding(18)
                 }
             }
 
@@ -123,11 +129,11 @@ struct WebPanelView: View {
     }
 
     private var supportsTemporaryChat: Bool {
-        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id
     }
 
     private var supportsReliableTemporaryChatState: Bool {
-        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id
     }
 
     private var showsTemporaryChatAsActive: Bool {
@@ -223,6 +229,38 @@ struct WebPanelView: View {
         )
         .shadow(radius: 6, y: 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func popupWebViewOverlay(_ popupWebView: WKWebView) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("로그인 창")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    store.dismissPopupWebView()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.plain)
+                .help("로그인 창 닫기")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.bar)
+
+            Divider()
+
+            WebViewContainer(webView: popupWebView)
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func collectDirectCopiedResponseIfAvailable() {

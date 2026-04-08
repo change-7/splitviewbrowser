@@ -99,6 +99,30 @@ enum ComposerAutomationCatalog {
             )
         }
 
+        if host.contains("claude.ai") {
+            return ComposerAutomationRule(
+                composerSelectors: [
+                    "div[contenteditable='true']:has(p[data-placeholder*='오늘 어떤 도움을 드릴까요?'])",
+                    "div.ProseMirror[contenteditable='true']",
+                    "div[contenteditable='true'][role='textbox']",
+                    "div[contenteditable='true']",
+                    "textarea"
+                ],
+                sendButtonSelectors: [
+                    "button:has(svg path[d^='M208.49,120.49'])",
+                    "button:has(svg path[d^='M208.49 120.49'])",
+                    "[role='button']:has(svg path[d^='M208.49,120.49'])",
+                    "[role='button']:has(svg path[d^='M208.49 120.49'])",
+                    "button:has(svg[viewBox='0 0 256 256'] path[d*='72,72'])",
+                    "button[aria-label*='send' i]",
+                    "button[aria-label*='submit' i]",
+                    "button[type='submit']"
+                ],
+                sendPattern: defaultSendPattern,
+                enableEnterKey: true
+            )
+        }
+
         return nil
     }
 }

@@ -659,6 +659,57 @@ extension WebViewStore {
               return performCopyClick(menuCopyCandidates[0], targetIndex);
             }
 
+            if (host.includes("claude.ai")) {
+              const claudeRawButtons = uniqueElements(
+                queryAllSafe(document, "button[data-testid='action-bar-copy']")
+                  .concat(queryAllSafe(document, "button[aria-label='Copy']"))
+                  .concat(queryAllSafe(document, "button[aria-label*='copy' i]"))
+              );
+
+              const claudeCandidates = uniqueElements(claudeRawButtons.map(resolveButton))
+                .filter((button) => button instanceof Element && isVisible(button) && isEnabled(button))
+                .filter((button) => {
+                  const resolved = resolveButton(button);
+                  if (!(resolved instanceof Element)) return false;
+                  const desc = descriptor(resolved);
+                  if (shouldSkipDescriptor(desc)) return false;
+
+                  const dataTestId = (resolved.getAttribute("data-testid") || "").toLowerCase();
+                  if (dataTestId === "action-bar-copy") return true;
+
+                  const ariaLabel = normalizeText(resolved.getAttribute("aria-label") || "");
+                  if (ariaLabel.toLowerCase() === "copy") return true;
+
+                  return Boolean(
+                    resolved.querySelector("svg path[d^='M12.5 3A1.5 1.5'], svg path[d^='M12.5 3 A1.5 1.5']")
+                  );
+                });
+
+              if (!claudeCandidates.length) {
+                return JSON.stringify({ ok: false, reason: "Claude 답변 복사 버튼을 찾지 못했습니다." });
+              }
+
+              const scoreClaudeButton = (button) => {
+                const rect = button.getBoundingClientRect();
+                const dataTestId = (button.getAttribute("data-testid") || "").toLowerCase();
+                const desc = descriptor(button);
+                let score = 0;
+                score += rect.top;
+                score += rect.left * 0.001;
+                if (dataTestId === "action-bar-copy") score += 1200;
+                if (/(copy|복사)/.test(desc)) score += 320;
+                return score;
+              };
+
+              const sortedClaude = claudeCandidates
+                .map((button) => ({ button, score: scoreClaudeButton(button) }))
+                .sort((a, b) => b.score - a.score)
+                .map((entry) => entry.button);
+
+              const targetIndex = Math.min(targetOffset, Math.max(0, sortedClaude.length - 1));
+              return performCopyClick(sortedClaude[targetIndex], targetIndex);
+            }
+
             const looksLikeCopyButton = (button) => {
               const resolved = resolveButton(button);
               if (!(resolved instanceof Element)) return false;
@@ -1461,6 +1512,43 @@ extension WebViewStore {
               });
             }
 
+            if (host.includes("claude.ai")) {
+              const closeButtons = queryButtons([
+                "button[aria-label*='취소' i]",
+                "button svg path[d^='M15.147 4.146']",
+                "[role='button'] svg path[d^='M15.147 4.146']"
+              ]);
+
+              if (closeButtons.length) {
+                const clicked = clickButtonLikeUser(closeButtons[0]);
+                return JSON.stringify({
+                  ok: clicked,
+                  clicked,
+                  message: clicked ? "Claude 시크릿창 종료 버튼 클릭 완료" : "Claude 시크릿창 종료 버튼 클릭 실패",
+                  reason: clicked ? null : "Claude 시크릿창 종료 버튼 클릭 실패"
+                });
+              }
+
+              const tempChatButtons = queryButtons([
+                "button[aria-label='시크릿 사용']",
+                "button[aria-label*='시크릿' i]",
+                "button svg path[d^='M10 2C14.326']",
+                "[role='button'] svg path[d^='M10 2C14.326']"
+              ]);
+
+              if (!tempChatButtons.length) {
+                return JSON.stringify({ ok: false, reason: "Claude 시크릿창 버튼을 찾지 못했습니다." });
+              }
+
+              const clicked = clickButtonLikeUser(tempChatButtons[0]);
+              return JSON.stringify({
+                ok: clicked,
+                clicked,
+                message: clicked ? "Claude 시크릿창 버튼 클릭 완료" : "Claude 시크릿창 버튼 클릭 실패",
+                reason: clicked ? null : "Claude 시크릿창 버튼 클릭 실패"
+              });
+            }
+
             return JSON.stringify({ ok: false, reason: "임시채팅을 지원하지 않는 서비스입니다." });
           } catch (error) {
             const reason = error && error.message ? String(error.message) : "임시채팅 버튼 스크립트 오류";
@@ -1554,6 +1642,31 @@ extension WebViewStore {
               }
 
               return JSON.stringify({ supported: true, active: false });
+            }
+
+            if (host.includes("claude.ai")) {
+              const activeButtons = queryButtons([
+                "button[aria-label*='취소' i]",
+                "button svg path[d^='M15.147 4.146']",
+                "[role='button'] svg path[d^='M15.147 4.146']"
+              ]);
+
+              if (activeButtons.length) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
+              const inactiveButtons = queryButtons([
+                "button[aria-label='시크릿 사용']",
+                "button[aria-label*='시크릿' i]",
+                "button svg path[d^='M10 2C14.326']",
+                "[role='button'] svg path[d^='M10 2C14.326']"
+              ]);
+
+              if (inactiveButtons.length) {
+                return JSON.stringify({ supported: true, active: false });
+              }
+
+              return JSON.stringify({ supported: true, active: null });
             }
 
             return JSON.stringify({ supported: false, active: null });

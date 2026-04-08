@@ -74,10 +74,12 @@ final class WebViewStore: NSObject, ObservableObject {
     @Published private(set) var runtimeIssue: RuntimeIssue?
     @Published private(set) var lastCopiedAssistantResponse: AssistantCopiedResponse?
     @Published private(set) var temporaryChatState: TemporaryChatState = .unavailable
+    @Published private(set) var popupWebView: WKWebView?
 
     private var hasLoadedHome = false
     private var observations: [NSKeyValueObservation] = []
     private let navigationProxy = NavigationProxy()
+    private let popupNavigationProxy = NavigationProxy()
     private let answerCopyCaptureBridge = AnswerCopyCaptureBridge()
     private let logger = AppLogger.shared
     private var hasPreparedForRelease = false
@@ -154,7 +156,7 @@ final class WebViewStore: NSObject, ObservableObject {
             self.runtimeIssue = nil
             self.configureWebViewScrollBehavior()
             self.applyHostLayoutFixes()
-            if self.currentService?.id == AIService.chatGPT.id {
+            if self.currentService?.id == AIService.chatGPT.id || self.currentService?.id == AIService.claude.id {
                 self.refreshTemporaryChatStateIfSupported()
                 self.startTemporaryChatStatePollingIfNeeded()
             } else if self.currentService?.id == AIService.gemini.id {
@@ -168,6 +170,33 @@ final class WebViewStore: NSObject, ObservableObject {
         }
         navigationProxy.didTerminateContentProcess = { [weak self] in
             self?.handleContentProcessTermination()
+        }
+
+        popupNavigationProxy.openExternal = { url in
+            NSWorkspace.shared.open(url)
+        }
+        popupNavigationProxy.shouldAllowInAppNavigation = { [weak self] url, navigationAction in
+            self?.shouldAllowInAppNavigation(to: url, navigationAction: navigationAction) ?? false
+        }
+        popupNavigationProxy.canOpenExternally = { url in
+            Self.canOpenExternally(url)
+        }
+        popupNavigationProxy.didFailNavigation = { [weak self] url, error in
+            self?.handleNavigationError(url: url, error: error)
+        }
+        popupNavigationProxy.didCloseWebView = { [weak self] closedWebView in
+            guard let self else { return }
+            if self.popupWebView === closedWebView {
+                self.popupWebView = nil
+            }
+        }
+        navigationProxy.createInAppPopupWebView = { [weak self] configuration in
+            guard let self else {
+                return WKWebView(frame: .zero, configuration: configuration)
+            }
+            let popup = self.makePopupWebView(configuration: configuration)
+            self.popupWebView = popup
+            return popup
         }
 
         webView.navigationDelegate = navigationProxy
@@ -298,9 +327,9 @@ final class WebViewStore: NSObject, ObservableObject {
     func reload() {
         clearRuntimeIssue()
         if let currentService, Self.supportsTemporaryChat(service: currentService) {
-            temporaryChatState = currentService.id == AIService.chatGPT.id
-                ? .unknown
-                : (inferredGeminiTemporaryChatActive ? .active : .inactive)
+            temporaryChatState = currentService.id == AIService.gemini.id
+                ? (inferredGeminiTemporaryChatActive ? .active : .inactive)
+                : .unknown
             startTemporaryChatStatePollingIfNeeded()
         } else {
             temporaryChatStateRefreshTask?.cancel()
@@ -325,6 +354,20 @@ final class WebViewStore: NSObject, ObservableObject {
         runtimeIssue = nil
     }
 
+    func dismissPopupWebView() {
+        popupWebView?.stopLoading()
+        popupWebView?.navigationDelegate = nil
+        popupWebView?.uiDelegate = nil
+        popupWebView = nil
+    }
+
+    private func makePopupWebView(configuration: WKWebViewConfiguration) -> WKWebView {
+        let popup = WKWebView(frame: .zero, configuration: configuration)
+        popup.navigationDelegate = popupNavigationProxy
+        popup.uiDelegate = popupNavigationProxy
+        return popup
+    }
+
     func prepareForRelease() {
         guard !hasPreparedForRelease else { return }
         hasPreparedForRelease = true
@@ -333,6 +376,10 @@ final class WebViewStore: NSObject, ObservableObject {
         temporaryChatState = .unavailable
         temporaryChatStateRefreshTask?.cancel()
         temporaryChatStateRefreshTask = nil
+        popupWebView?.stopLoading()
+        popupWebView?.navigationDelegate = nil
+        popupWebView?.uiDelegate = nil
+        popupWebView = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.answerCopyCaptureMessageName)
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -672,7 +719,7 @@ final class WebViewStore: NSObject, ObservableObject {
     }
 
     private static func supportsTemporaryChat(service: AIService) -> Bool {
-        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id
     }
 
     private func refreshTemporaryChatStateIfSupported() {
@@ -747,7 +794,7 @@ final class WebViewStore: NSObject, ObservableObject {
             return
         }
 
-        guard currentService.id == AIService.chatGPT.id else {
+        guard currentService.id == AIService.chatGPT.id || currentService.id == AIService.claude.id else {
             temporaryChatStateRefreshTask?.cancel()
             temporaryChatStateRefreshTask = nil
             return
@@ -1043,11 +1090,13 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
     var openExternal: ((URL) -> Void)?
     var shouldAllowInAppNavigation: ((URL, WKNavigationAction) -> Bool)?
     var canOpenExternally: ((URL) -> Bool)?
+    var createInAppPopupWebView: ((WKWebViewConfiguration) -> WKWebView)?
     var didStartNavigation: ((URL?) -> Void)?
     var didCommitNavigation: ((URL?) -> Void)?
     var didFinishNavigation: (() -> Void)?
     var didFailNavigation: ((URL?, Error) -> Void)?
     var didTerminateContentProcess: (() -> Void)?
+    var didCloseWebView: ((WKWebView) -> Void)?
 
     func webView(
         _ webView: WKWebView,
@@ -1079,10 +1128,20 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url, canOpenExternally?(url) == true {
-            openExternal?(url)
+        if let url = navigationAction.request.url {
+            if shouldAllowInAppNavigation?(url, navigationAction) == true {
+                return createInAppPopupWebView?(configuration)
+            }
+
+            if canOpenExternally?(url) == true {
+                openExternal?(url)
+            }
         }
         return nil
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        didCloseWebView?(webView)
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

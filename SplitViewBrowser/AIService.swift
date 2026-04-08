@@ -19,13 +19,19 @@ struct AIService: Identifiable, Codable, Hashable {
         urlString: "https://www.perplexity.ai/",
         isBuiltIn: true
     )
+    static let claude = AIService(
+        id: "builtin-claude",
+        title: "Claude",
+        urlString: "https://claude.ai/new",
+        isBuiltIn: true
+    )
     static let grok = AIService(
         id: "builtin-grok",
         title: "Grok",
         urlString: "https://grok.com/",
         isBuiltIn: true
     )
-    static let builtInServices: [AIService] = [.chatGPT, .gemini, .perplexity, .grok]
+    static let builtInServices: [AIService] = [.chatGPT, .gemini, .perplexity, .claude, .grok]
 
     let id: String
     let title: String
@@ -44,6 +50,18 @@ struct AIService: Identifiable, Codable, Hashable {
             return ["gemini.google.com", "google.com"]
         case AIService.perplexity.id:
             return ["perplexity.ai"]
+        case AIService.claude.id:
+            // Claude sometimes redirects through auth or Cloudflare challenge hosts
+            // before returning to claude.ai. Keep those checks inside the panel so
+            // the verification can complete in the same WKWebView session.
+            return [
+                "claude.ai",
+                "anthropic.com",
+                "challenges.cloudflare.com",
+                "accounts.google.com",
+                "oauth.googleusercontent.com",
+                "myaccount.google.com"
+            ]
         case AIService.grok.id:
             return ["grok.com", "x.ai", "x.com"]
         default:
@@ -74,6 +92,8 @@ struct AIService: Identifiable, Codable, Hashable {
             return AIService.gemini.id
         case "perplexity":
             return AIService.perplexity.id
+        case "claude":
+            return AIService.claude.id
         case "grok":
             return AIService.grok.id
         default:

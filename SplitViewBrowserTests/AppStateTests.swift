@@ -223,7 +223,7 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
-    func testAddPanelUsesLastVisibleServiceWhenAllBuiltInServicesAlreadyVisible() {
+    func testAddPanelPrefersClaudeAfterPerplexity() {
         let defaults = makeDefaults()
         let state = AppState(defaults: defaults)
 
@@ -235,7 +235,7 @@ final class AppStateTests: XCTestCase {
         state.addPanel()
 
         XCTAssertEqual(state.panelCount, 5)
-        XCTAssertEqual(state.service(at: 4).id, AIService.grok.id)
+        XCTAssertEqual(state.service(at: 4).id, AIService.claude.id)
     }
 
     @MainActor
@@ -304,7 +304,9 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
-    func testBuiltInServicesIncludeGrokAndLegacyMapping() {
+    func testBuiltInServicesIncludeClaudeAndLegacyMapping() {
+        XCTAssertTrue(AIService.builtInServices.contains(where: { $0.id == AIService.claude.id }))
+        XCTAssertEqual(AIService.legacyID(from: "claude"), AIService.claude.id)
         XCTAssertTrue(AIService.builtInServices.contains(where: { $0.id == AIService.grok.id }))
         XCTAssertEqual(AIService.legacyID(from: "grok"), AIService.grok.id)
     }
@@ -314,6 +316,7 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(AIService.chatGPT.trustsHost("auth.openai.com"))
         XCTAssertTrue(AIService.gemini.trustsHost("accounts.google.com"))
         XCTAssertTrue(AIService.perplexity.trustsHost("www.perplexity.ai"))
+        XCTAssertTrue(AIService.claude.trustsHost("claude.ai"))
         XCTAssertTrue(AIService.grok.trustsHost("grok.com"))
         XCTAssertFalse(AIService.chatGPT.trustsHost("example.com"))
     }
