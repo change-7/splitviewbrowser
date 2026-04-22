@@ -16,6 +16,14 @@ private enum TwoPanelCrossSendDirection: Hashable {
     case secondToFirst
 }
 
+private struct BulkCopySummary {
+    let startedAt: Date
+    let attemptedPanelIndices: [Int]
+    let clickedPanelIndices: [Int]
+    let clickedCount: Int
+    let failedCount: Int
+}
+
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @State private var isPromptRepositoryPresented = false
@@ -178,6 +186,19 @@ struct ContentView: View {
                     isQuickComposePresented = true
                 }
             )
+        }
+        ToolbarItem(placement: .navigation) {
+            ToolbarActionChipButton(
+                helpText: "현재 보이는 ChatGPT, Gemini, Claude, Grok 패널의 임시채팅 동시 실행",
+                accessibilityLabel: "지원 패널 임시채팅 동시 실행",
+                isEnabled: hasVisibleBulkTemporaryChatTargets,
+                palette: .neutral,
+                action: {
+                    triggerTemporaryChatForVisibleSupportedPanels()
+                }
+            ) {
+                Image(systemName: "sparkles")
+            }
         }
         ToolbarItem(placement: .navigation) {
             ToolbarActionChipButton(
@@ -436,37 +457,95 @@ struct ContentView: View {
     }
 
     private func triggerPageCopyForAllVisiblePanels() {
-        let analysisTargetIndex = appState.analysisTargetPanelIndex
-        let panelIndices = Array(0 ..< appState.panelCount).filter { $0 != analysisTargetIndex }
+        Task { @MainActor in
+            let summary = await performBulkCopyForVisiblePanels(excluding: appState.analysisTargetPanelIndex)
+            reportBulkCopySummary(summary)
+        }
+    }
+
+    @MainActor
+    private func performBulkCopyForVisiblePanels(excluding excludedPanelIndex: Int?) async -> BulkCopySummary {
+        let panelIndices = Array(0 ..< appState.panelCount).filter { $0 != excludedPanelIndex }
+        let startedAt = Date()
+
         guard !panelIndices.isEmpty else {
+            return BulkCopySummary(
+                startedAt: startedAt,
+                attemptedPanelIndices: [],
+                clickedPanelIndices: [],
+                clickedCount: 0,
+                failedCount: 0
+            )
+        }
+
+        var clickedPanelIndices: [Int] = []
+        var clickedCount = 0
+        var failedCount = 0
+
+        for panelIndex in panelIndices {
+            let store = appState.webViewStore(for: panelIndex)
+            let result = await store.triggerAssistantAnswerCopy(targetOffset: 0)
+            switch result {
+            case let .success(copyResult):
+                if copyResult.clicked {
+                    clickedPanelIndices.append(panelIndex)
+                    clickedCount += 1
+                } else {
+                    failedCount += 1
+                }
+            case .failure:
+                failedCount += 1
+            }
+        }
+
+        return BulkCopySummary(
+            startedAt: startedAt,
+            attemptedPanelIndices: panelIndices,
+            clickedPanelIndices: clickedPanelIndices,
+            clickedCount: clickedCount,
+            failedCount: failedCount
+        )
+    }
+
+    @MainActor
+    private func waitForCollectedResponses(
+        from panelIndices: [Int],
+        notBefore date: Date
+    ) async {
+        guard !panelIndices.isEmpty else { return }
+
+        for _ in 0 ..< 20 {
+            let unresolved = panelIndices.filter { panelIndex in
+                guard let response = appState.collectedResponse(for: panelIndex) else { return true }
+                return response.capturedAt < date
+            }
+
+            if unresolved.isEmpty {
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+        }
+    }
+
+    @MainActor
+    private func reportBulkCopySummary(_ summary: BulkCopySummary) {
+        guard !summary.attemptedPanelIndices.isEmpty else {
             setCollectionStatus("분석 패널을 제외하면 복사할 패널이 없습니다", isError: true)
             return
         }
 
-        Task {
-            var clickedCount = 0
-            var failedCount = 0
-
-            for panelIndex in panelIndices {
-                let store = appState.webViewStore(for: panelIndex)
-                let result = await store.triggerAssistantAnswerCopy(targetOffset: 0)
-                switch result {
-                case let .success(copyResult):
-                    if copyResult.clicked {
-                        clickedCount += 1
-                    } else {
-                        failedCount += 1
-                    }
-                case .failure:
-                    failedCount += 1
-                }
-            }
-
-            if failedCount == 0 {
-                setCollectionStatus("전체 복사 버튼 클릭 완료: \(clickedCount)/\(panelIndices.count) 패널 (분석 패널 제외)", isError: false)
-            } else {
-                setCollectionStatus("전체 복사 일부 실패: 성공 \(clickedCount), 실패 \(failedCount) (분석 패널 제외)", isError: true)
-            }
+        if summary.failedCount == 0 {
+            setCollectionStatus(
+                "전체 복사 버튼 클릭 완료: \(summary.clickedCount)/\(summary.attemptedPanelIndices.count) 패널 (분석 패널 제외)",
+                isError: false
+            )
+        } else {
+            setCollectionStatus(
+                "전체 복사 일부 실패: 성공 \(summary.clickedCount), 실패 \(summary.failedCount) (분석 패널 제외)",
+                isError: true
+            )
         }
     }
 
@@ -637,37 +716,101 @@ struct ContentView: View {
             appState.setAnalysisTargetPanelIndex(panelIndex)
         }
 
-        let targetStore = appState.webViewStore(for: panelIndex)
-        guard let prompt = appState.buildCollectedResponsesAnalysisPrompt() else {
-            Task {
+        Task { @MainActor in
+            let copySummary = await performBulkCopyForVisiblePanels(excluding: panelIndex)
+            if !copySummary.clickedPanelIndices.isEmpty {
+                await waitForCollectedResponses(from: copySummary.clickedPanelIndices, notBefore: copySummary.startedAt)
+            }
+
+            let targetStore = appState.webViewStore(for: panelIndex)
+            guard let prompt = appState.buildCollectedResponsesAnalysisPrompt() else {
+                if copySummary.attemptedPanelIndices.isEmpty {
+                    setCollectionStatus("분석 패널을 제외하면 복사할 패널이 없습니다", isError: true)
+                    return
+                }
+
                 let result = await targetStore.prepareComposerForInput()
                 switch result {
                 case let .success(prepareResult):
                     if prepareResult.focused {
-                        setCollectionStatus("패널 \(panelIndex + 1)을 분석 대상으로 지정했습니다", isError: false)
+                        setCollectionStatus("복사된 답변이 없어 패널 \(panelIndex + 1)을 분석 대상으로만 지정했습니다", isError: true)
                     } else {
-                        setCollectionStatus("패널 \(panelIndex + 1)을 분석 대상으로 지정했습니다 (입력창 준비 결과 확인 필요)", isError: true)
+                        setCollectionStatus("복사된 답변이 없어 패널 \(panelIndex + 1) 입력창 준비 결과 확인 필요", isError: true)
                     }
                 case let .failure(error):
-                    setCollectionStatus("패널 \(panelIndex + 1) 분석 대상 지정 완료, 입력창 준비 실패: \(error.localizedDescription)", isError: true)
+                    setCollectionStatus("복사된 답변이 없어 패널 \(panelIndex + 1) 입력창 준비 실패: \(error.localizedDescription)", isError: true)
                 }
+                return
             }
-            return
-        }
 
-        Task {
             let result = await targetStore.sendTextToComposer(prompt, submit: true)
             switch result {
             case let .success(sendResult):
                 if sendResult.submitted {
-                    setCollectionStatus("패널 \(panelIndex + 1)에 입력 및 전송 완료", isError: false)
+                    if copySummary.failedCount == 0 {
+                        setCollectionStatus("전체 복사 후 패널 \(panelIndex + 1)에 입력 및 전송 완료", isError: false)
+                    } else {
+                        setCollectionStatus("전체 복사 일부 실패 후 패널 \(panelIndex + 1)에 입력 및 전송 완료", isError: true)
+                    }
                 } else if sendResult.inserted {
-                    setCollectionStatus("패널 \(panelIndex + 1)에 입력 완료 (전송 버튼 미탐지)", isError: false)
+                    if copySummary.failedCount == 0 {
+                        setCollectionStatus("전체 복사 후 패널 \(panelIndex + 1)에 입력 완료 (전송 버튼 미탐지)", isError: false)
+                    } else {
+                        setCollectionStatus("전체 복사 일부 실패 후 패널 \(panelIndex + 1)에 입력 완료 (전송 버튼 미탐지)", isError: true)
+                    }
                 } else {
                     setCollectionStatus("패널 \(panelIndex + 1) 전송 결과 확인 필요", isError: true)
                 }
             case let .failure(error):
                 setCollectionStatus("패널 \(panelIndex + 1) 전송 실패: \(error.localizedDescription)", isError: true)
+            }
+        }
+    }
+
+    private var visibleBulkTemporaryChatTargetIndices: [Int] {
+        Array(0 ..< appState.panelCount).filter { index in
+            let serviceID = appState.service(at: index).id
+            return serviceID == AIService.chatGPT.id
+                || serviceID == AIService.gemini.id
+                || serviceID == AIService.claude.id
+                || serviceID == AIService.grok.id
+        }
+    }
+
+    private var hasVisibleBulkTemporaryChatTargets: Bool {
+        !visibleBulkTemporaryChatTargetIndices.isEmpty
+    }
+
+    private func triggerTemporaryChatForVisibleSupportedPanels() {
+        let panelIndices = visibleBulkTemporaryChatTargetIndices
+        guard !panelIndices.isEmpty else {
+            setCollectionStatus("현재 보이는 임시채팅 지원 패널이 없습니다", isError: true)
+            return
+        }
+
+        Task {
+            var clickedCount = 0
+            var failedCount = 0
+
+            for panelIndex in panelIndices {
+                let store = appState.webViewStore(for: panelIndex)
+                let result = await store.triggerTemporaryChat()
+                switch result {
+                case let .success(clickResult):
+                    if clickResult.clicked {
+                        clickedCount += 1
+                    } else {
+                        failedCount += 1
+                    }
+                case .failure:
+                    failedCount += 1
+                }
+            }
+
+            if failedCount == 0 {
+                setCollectionStatus("임시채팅 동시 실행 완료: \(clickedCount)/\(panelIndices.count) 패널", isError: false)
+            } else {
+                setCollectionStatus("임시채팅 동시 실행 일부 실패: 성공 \(clickedCount), 실패 \(failedCount)", isError: true)
             }
         }
     }

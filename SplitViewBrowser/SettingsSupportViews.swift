@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct DiagnosticsSectionView: View {
@@ -60,8 +59,7 @@ struct DiagnosticsSectionView: View {
 
     private func copyDiagnosticsLogs() {
         let text = appLogger.joinedText()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        PlatformClipboard.writeString(text)
     }
 
     private func logLevelColor(_ level: AppLogger.Level) -> Color {

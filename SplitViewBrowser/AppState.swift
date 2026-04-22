@@ -274,7 +274,7 @@ final class AppState: ObservableObject {
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var defaultsWriteTasks: [String: Task<Void, Never>] = [:]
     private let defaultsWriteThrottleNanos: UInt64 = 350_000_000
-    private var lifecycleObservers: [NSObjectProtocol] = []
+    private let lifecycleMonitor = PlatformLifecycleMonitor()
     private var isApplyingPreset = false
     let logger = AppLogger.shared
 
@@ -296,7 +296,7 @@ final class AppState: ObservableObject {
         isTwoPanelCrossSendEnabled = Self.restoreTwoPanelCrossSendEnabled(from: defaults)
         pendingPresetWindowSize = nil
         panelStructureVersion = 0
-        isAppActive = NSApp?.isActive ?? true
+        isAppActive = lifecycleMonitor.isActiveNow
         collectedResponsesByPanel = [:]
         analysisTargetPanelIndex = max(0, initialPanelCount - 1)
         servicesByID = Dictionary(uniqueKeysWithValues: restoredServices.map { ($0.id, $0) })
@@ -316,9 +316,7 @@ final class AppState: ObservableObject {
         for task in defaultsWriteTasks.values {
             task.cancel()
         }
-        for observer in lifecycleObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        lifecycleMonitor.stop()
         memoryPressureSource?.cancel()
     }
 
@@ -1426,26 +1424,18 @@ final class AppState: ObservableObject {
     }
 
     private func configureApplicationLifecycleMonitoring() {
-        let center = NotificationCenter.default
-        let didResign = center.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handleApplicationDidResignActive()
+        lifecycleMonitor.start(
+            onBecomeActive: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleApplicationDidBecomeActive()
+                }
+            },
+            onResignActive: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleApplicationDidResignActive()
+                }
             }
-        }
-        let didBecome = center.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handleApplicationDidBecomeActive()
-            }
-        }
-        lifecycleObservers = [didResign, didBecome]
+        )
     }
 
     private func handleApplicationDidResignActive() {

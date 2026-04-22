@@ -398,8 +398,8 @@ extension WebViewStore {
 
             const resolveButton = (element) => {
               if (!(element instanceof Element)) return null;
-              if (element.matches("button,[role='button']")) return element;
-              return element.closest("button,[role='button']");
+              if (element.matches("button,[role='button'],a[href]")) return element;
+              return element.closest("button,[role='button'],a[href]");
             };
 
             const getUseHrefTokens = (button) => {
@@ -1409,8 +1409,8 @@ extension WebViewStore {
 
             const resolveButton = (element) => {
               if (!(element instanceof Element)) return null;
-              if (element.matches("button,[role='button']")) return element;
-              return element.closest("button,[role='button']");
+              if (element.matches("button,[role='button'],a[href]")) return element;
+              return element.closest("button,[role='button'],a[href]");
             };
 
             const uniqueElements = (elements) => {
@@ -1448,6 +1448,23 @@ extension WebViewStore {
               } catch (_) {}
               try {
                 button.click();
+                return true;
+              } catch (_) {
+                return false;
+              }
+            };
+
+            const clickOrFollowAnchor = (element) => {
+              if (!(element instanceof Element)) return false;
+              const clicked = clickButtonLikeUser(element);
+              if (clicked) return true;
+
+              const href = element.getAttribute("href");
+              if (!href) return false;
+
+              try {
+                const url = new URL(href, window.location.origin);
+                window.location.assign(url.toString());
                 return true;
               } catch (_) {
                 return false;
@@ -1515,6 +1532,7 @@ extension WebViewStore {
             if (host.includes("claude.ai")) {
               const closeButtons = queryButtons([
                 "button[aria-label*='취소' i]",
+                "button:has(svg path[d^='M15.147 4.146'])",
                 "button svg path[d^='M15.147 4.146']",
                 "[role='button'] svg path[d^='M15.147 4.146']"
               ]);
@@ -1532,6 +1550,7 @@ extension WebViewStore {
               const tempChatButtons = queryButtons([
                 "button[aria-label='시크릿 사용']",
                 "button[aria-label*='시크릿' i]",
+                "button:has(svg path[d^='M10 2C14.326'])",
                 "button svg path[d^='M10 2C14.326']",
                 "[role='button'] svg path[d^='M10 2C14.326']"
               ]);
@@ -1546,6 +1565,44 @@ extension WebViewStore {
                 clicked,
                 message: clicked ? "Claude 시크릿창 버튼 클릭 완료" : "Claude 시크릿창 버튼 클릭 실패",
                 reason: clicked ? null : "Claude 시크릿창 버튼 클릭 실패"
+              });
+            }
+
+            if (host.includes("grok.com")) {
+              const normalChatButtons = queryButtons([
+                "a[aria-label='기본 채팅으로 전환']",
+                "a[aria-label*='기본 채팅' i]",
+                "a[href='/c']",
+                "a:has(svg[data-testid='pi-ghost-fill'])"
+              ]);
+
+              if (normalChatButtons.length) {
+                const clicked = clickOrFollowAnchor(normalChatButtons[0]);
+                return JSON.stringify({
+                  ok: clicked,
+                  clicked,
+                  message: clicked ? "Grok 일반 채팅으로 전환 완료" : "Grok 일반 채팅으로 전환 실패",
+                  reason: clicked ? null : "Grok 일반 채팅 전환 버튼 클릭 실패"
+                });
+              }
+
+              const privateChatButtons = queryButtons([
+                "a[aria-label='비공개 채팅으로 전환하기']",
+                "a[aria-label*='비공개 채팅' i]",
+                "a[href='/c#private']",
+                "a:has(svg[data-testid='pi-ghost'])"
+              ]);
+
+              if (!privateChatButtons.length) {
+                return JSON.stringify({ ok: false, reason: "Grok 비공개 채팅 버튼을 찾지 못했습니다." });
+              }
+
+              const clicked = clickOrFollowAnchor(privateChatButtons[0]);
+              return JSON.stringify({
+                ok: clicked,
+                clicked,
+                message: clicked ? "Grok 비공개 채팅 버튼 클릭 완료" : "Grok 비공개 채팅 버튼 클릭 실패",
+                reason: clicked ? null : "Grok 비공개 채팅 버튼 클릭 실패"
               });
             }
 
@@ -1607,7 +1664,37 @@ extension WebViewStore {
               return button.getAttribute("aria-pressed") === "true" || button.getAttribute("aria-checked") === "true";
             };
 
+            const collectVisibleText = () =>
+              Array.from(document.querySelectorAll("body *"))
+                .filter((element) => isVisible(element))
+                .map((element) => (element.textContent || "").replace(/\\s+/g, " ").trim())
+                .filter(Boolean)
+                .join("\\n");
+
+            const pageText = collectVisibleText();
+
+            const containsAllSnippets = (snippets) =>
+              snippets.every((snippet) => pageText.includes(snippet));
+
             if (host.includes("openai.com") || host.includes("chatgpt.com")) {
+              const activeCards = uniqueElements(
+                [
+                  ...Array.from(document.querySelectorAll("[data-testid='temporary-chat-label']")),
+                  ...Array.from(document.querySelectorAll("h1[data-testid='temporary-chat-label']"))
+                ]
+              ).filter((element) => isVisible(element));
+
+              if (
+                activeCards.length ||
+                containsAllSnippets([
+                  "임시 채팅",
+                  "이 채팅은 사용자님의 채팅 기록에 나타나지 않으며",
+                  "당사 모델 훈련에 사용되지 않습니다"
+                ])
+              ) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
               const turnOnButtons = queryButtons([
                 "button[aria-label='임시 채팅 켜기']",
                 "button[aria-label*='임시 채팅 켜' i]",
@@ -1619,19 +1706,29 @@ extension WebViewStore {
                 return JSON.stringify({ supported: true, active: false });
               }
 
-              const activeButtons = queryButtons([
-                "button[aria-label*='임시 채팅' i]",
-                "button[aria-label*='temporary chat' i]"
-              ]);
-
-              if (activeButtons.length) {
-                return JSON.stringify({ supported: true, active: true });
-              }
-
               return JSON.stringify({ supported: true, active: null });
             }
 
             if (host.includes("gemini.google.com")) {
+              const temporaryChatCards = uniqueElements(
+                Array.from(document.querySelectorAll(".temporary-chat-card"))
+              ).filter((element) => isVisible(element));
+
+              if (
+                temporaryChatCards.length ||
+                containsAllSnippets([
+                  "임시 채팅",
+                  "최근 채팅",
+                  "Gemini 앱 활동"
+                ]) ||
+                containsAllSnippets([
+                  "임시 채팅",
+                  "72시간 동안 저장됩니다"
+                ])
+              ) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
               const tempChatButtons = queryButtons([
                 "button[data-test-id='temp-chat-button']",
                 "button[aria-label='임시 채팅']"
@@ -1645,8 +1742,18 @@ extension WebViewStore {
             }
 
             if (host.includes("claude.ai")) {
+              if (
+                containsAllSnippets([
+                  "시크릿 채팅은 기록에 저장되지 않으며",
+                  "모델 훈련에 사용되지 않습니다"
+                ])
+              ) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
               const activeButtons = queryButtons([
                 "button[aria-label*='취소' i]",
+                "button:has(svg path[d^='M15.147 4.146'])",
                 "button svg path[d^='M15.147 4.146']",
                 "[role='button'] svg path[d^='M15.147 4.146']"
               ]);
@@ -1658,8 +1765,44 @@ extension WebViewStore {
               const inactiveButtons = queryButtons([
                 "button[aria-label='시크릿 사용']",
                 "button[aria-label*='시크릿' i]",
+                "button:has(svg path[d^='M10 2C14.326'])",
                 "button svg path[d^='M10 2C14.326']",
                 "[role='button'] svg path[d^='M10 2C14.326']"
+              ]);
+
+              if (inactiveButtons.length) {
+                return JSON.stringify({ supported: true, active: false });
+              }
+
+              return JSON.stringify({ supported: true, active: null });
+            }
+
+            if (host.includes("grok.com")) {
+              const activeButtons = queryButtons([
+                "a[aria-label='기본 채팅으로 전환']",
+                "a[aria-label*='기본 채팅' i]",
+                "a[href='/c']",
+                "a:has(svg[data-testid='pi-ghost-fill'])"
+              ]);
+
+              if (activeButtons.length) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
+              if (
+                containsAllSnippets([
+                  "이 채팅은 기록에 남지 않으며",
+                  "모델 학습에 사용되지 않습니다"
+                ])
+              ) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
+              const inactiveButtons = queryButtons([
+                "a[aria-label='비공개 채팅으로 전환하기']",
+                "a[aria-label*='비공개 채팅' i]",
+                "a[href='/c#private']",
+                "a:has(svg[data-testid='pi-ghost'])"
               ]);
 
               if (inactiveButtons.length) {

@@ -42,14 +42,44 @@ struct AIService: Identifiable, Codable, Hashable {
         URL(string: urlString) ?? URL(string: "https://chatgpt.com/")!
     }
 
+    var authRedirectHostSuffixes: [String] {
+        switch id {
+        case AIService.perplexity.id:
+            return trustedHostSuffixes + ["pplx.ai"]
+        case AIService.grok.id:
+            return trustedHostSuffixes + ["twitter.com", "t.co"]
+        default:
+            return trustedHostSuffixes
+        }
+    }
+
     var trustedHostSuffixes: [String] {
         switch id {
         case AIService.chatGPT.id:
-            return ["chatgpt.com", "openai.com"]
+            // ChatGPT account flows can bounce through Google-hosted OAuth pages
+            // before returning to OpenAI. Keep those redirects inside the same
+            // WKWebView session so the final callback can resolve correctly.
+            return [
+                "chatgpt.com",
+                "openai.com",
+                "google.com",
+                "googleusercontent.com",
+                "gstatic.com"
+            ]
         case AIService.gemini.id:
             return ["gemini.google.com", "google.com"]
         case AIService.perplexity.id:
-            return ["perplexity.ai"]
+            // Perplexity Google sign-in often navigates the main frame directly
+            // into Google's OAuth flow instead of keeping everything in a popup.
+            return [
+                "perplexity.ai",
+                "accounts.google.com",
+                "myaccount.google.com",
+                "google.com",
+                "googleusercontent.com",
+                "googleapis.com",
+                "gstatic.com"
+            ]
         case AIService.claude.id:
             // Claude sometimes redirects through auth or Cloudflare challenge hosts
             // before returning to claude.ai. Keep those checks inside the panel so
@@ -63,7 +93,19 @@ struct AIService: Identifiable, Codable, Hashable {
                 "myaccount.google.com"
             ]
         case AIService.grok.id:
-            return ["grok.com", "x.ai", "x.com"]
+            // Grok can also redirect the current page into Google's hosted
+            // account chooser before returning through x.com / x.ai.
+            return [
+                "grok.com",
+                "x.ai",
+                "x.com",
+                "accounts.google.com",
+                "myaccount.google.com",
+                "google.com",
+                "googleusercontent.com",
+                "googleapis.com",
+                "gstatic.com"
+            ]
         default:
             guard let host = homeURL.host?.lowercased(), !host.isEmpty else { return [] }
             return [host]
@@ -73,6 +115,13 @@ struct AIService: Identifiable, Codable, Hashable {
     func trustsHost(_ host: String) -> Bool {
         let normalizedHost = host.lowercased()
         return trustedHostSuffixes.contains { suffix in
+            normalizedHost == suffix || normalizedHost.hasSuffix(".\(suffix)")
+        }
+    }
+
+    func trustsAuthRedirectHost(_ host: String) -> Bool {
+        let normalizedHost = host.lowercased()
+        return authRedirectHostSuffixes.contains { suffix in
             normalizedHost == suffix || normalizedHost.hasSuffix(".\(suffix)")
         }
     }

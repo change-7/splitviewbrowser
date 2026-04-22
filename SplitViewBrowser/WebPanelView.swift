@@ -129,11 +129,11 @@ struct WebPanelView: View {
     }
 
     private var supportsTemporaryChat: Bool {
-        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id || service.id == AIService.grok.id
     }
 
     private var supportsReliableTemporaryChatState: Bool {
-        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id || service.id == AIService.grok.id
     }
 
     private var showsTemporaryChatAsActive: Bool {

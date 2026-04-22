@@ -23,6 +23,33 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
 
+  SplitViewBrowserPad:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SplitViewBrowser/AIService.swift
+      - path: SplitViewBrowserPad/PadAppState.swift
+      - path: SplitViewBrowserPad/PadLayoutSpec.swift
+      - path: SplitViewBrowserPad/PadPanelPageView.swift
+      - path: SplitViewBrowserPad/PadRootView.swift
+      - path: SplitViewBrowserPad/PadWebViewContainer.swift
+      - path: SplitViewBrowserPad/PadWebViewStore.swift
+      - path: SplitViewBrowserPad/SplitViewBrowserPadApp.swift
+    resources:
+      - SplitViewBrowser/Assets.xcassets
+      - SplitViewBrowser/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pdg.SplitViewBrowser.pad
+        TARGETED_DEVICE_FAMILY: 2
+        SUPPORTS_MACCATALYST: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIconPad
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: SplitViewBrowserPad/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+
   SplitViewBrowserTests:
     type: bundle.unit-test
     platform: macOS
@@ -46,3 +73,10 @@ schemes:
       config: Debug
       targets:
         - SplitViewBrowserTests
+
+  SplitViewBrowserPad:
+    build:
+      targets:
+        SplitViewBrowserPad: all
+    run:
+      config: Debug

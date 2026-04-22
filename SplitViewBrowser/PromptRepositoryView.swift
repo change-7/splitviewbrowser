@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct PromptRepositoryView: View {
@@ -289,8 +288,7 @@ struct PromptRepositoryView: View {
     }
 
     private func copyPrompt(_ prompt: SavedPrompt) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(prompt.text, forType: .string)
+        PlatformClipboard.writeString(prompt.text)
         copiedPromptID = prompt.id
         statusMessage = "\"\(prompt.title)\" 복사됨"
         statusIsError = false

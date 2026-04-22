@@ -132,7 +132,7 @@ final class WebViewStore: NSObject, ObservableObject {
         )
 
         navigationProxy.openExternal = { url in
-            NSWorkspace.shared.open(url)
+            PlatformURLOpener.open(url)
         }
         navigationProxy.shouldAllowInAppNavigation = { [weak self] url, navigationAction in
             self?.shouldAllowInAppNavigation(to: url, navigationAction: navigationAction) ?? false
@@ -173,7 +173,7 @@ final class WebViewStore: NSObject, ObservableObject {
         }
 
         popupNavigationProxy.openExternal = { url in
-            NSWorkspace.shared.open(url)
+            PlatformURLOpener.open(url)
         }
         popupNavigationProxy.shouldAllowInAppNavigation = { [weak self] url, navigationAction in
             self?.shouldAllowInAppNavigation(to: url, navigationAction: navigationAction) ?? false
@@ -276,14 +276,13 @@ final class WebViewStore: NSObject, ObservableObject {
 
     @discardableResult
     private func publishCopiedAnswerFromClipboardIfAvailable() -> Bool {
-        let pasteboard = NSPasteboard.general
         if let baseline = pendingClipboardBaselineChangeCount,
-           pasteboard.changeCount <= baseline
+           PlatformClipboard.changeCount <= baseline
         {
             return false
         }
 
-        let clipboardText = pasteboard.string(forType: .string)?
+        let clipboardText = PlatformClipboard.readString()?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !clipboardText.isEmpty else { return false }
         publishCopiedAssistantResponse(text: clipboardText, source: "clipboard")
@@ -560,7 +559,7 @@ final class WebViewStore: NSObject, ObservableObject {
             return
         }
 
-        pendingClipboardBaselineChangeCount = NSPasteboard.general.changeCount
+        pendingClipboardBaselineChangeCount = PlatformClipboard.changeCount
         let js = Self.answerCopyButtonScript(payloadJSON: json)
         webView.evaluateJavaScript(js) { [weak self] value, error in
             Task { @MainActor [weak self] in
@@ -719,7 +718,7 @@ final class WebViewStore: NSObject, ObservableObject {
     }
 
     private static func supportsTemporaryChat(service: AIService) -> Bool {
-        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id
+        service.id == AIService.chatGPT.id || service.id == AIService.gemini.id || service.id == AIService.claude.id || service.id == AIService.grok.id
     }
 
     private func refreshTemporaryChatStateIfSupported() {
@@ -794,7 +793,10 @@ final class WebViewStore: NSObject, ObservableObject {
             return
         }
 
-        guard currentService.id == AIService.chatGPT.id || currentService.id == AIService.claude.id else {
+        guard currentService.id == AIService.chatGPT.id
+            || currentService.id == AIService.gemini.id
+            || currentService.id == AIService.claude.id
+            || currentService.id == AIService.grok.id else {
             temporaryChatStateRefreshTask?.cancel()
             temporaryChatStateRefreshTask = nil
             return
