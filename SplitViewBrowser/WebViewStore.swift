@@ -778,6 +778,10 @@ final class WebViewStore: NSObject, ObservableObject {
         }
     }
 
+    func refreshTemporaryChatStateNow() {
+        refreshTemporaryChatStateIfSupported()
+    }
+
     private func scheduleTemporaryChatStateRefresh() {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 600_000_000)

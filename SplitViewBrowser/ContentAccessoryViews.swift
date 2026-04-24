@@ -77,6 +77,123 @@ struct ToolbarIconBadgeButton: View {
     }
 }
 
+private struct TemporaryChatBubbleShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let tailWidth = rect.width * 0.18
+        let tailHeight = rect.height * 0.2
+        let bubbleRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - tailHeight)
+        let radius = min(bubbleRect.width, bubbleRect.height) * 0.28
+
+        var path = Path(roundedRect: bubbleRect, cornerRadius: radius)
+
+        let tailTop = CGPoint(x: bubbleRect.midX - tailWidth * 0.55, y: bubbleRect.maxY)
+        let tailTip = CGPoint(x: bubbleRect.midX - tailWidth * 0.05, y: rect.maxY)
+        let tailBottom = CGPoint(x: bubbleRect.midX + tailWidth * 0.45, y: bubbleRect.maxY)
+
+        path.move(to: tailTop)
+        path.addLine(to: tailTip)
+        path.addLine(to: tailBottom)
+        path.closeSubpath()
+
+        return path
+    }
+}
+
+enum TemporaryChatBadgeState {
+    case inactive
+    case mixed
+    case active
+}
+
+struct TemporaryChatBadgeView: View {
+    let state: TemporaryChatBadgeState
+    var foreground: Color = .primary
+    var activeColor: Color = .red
+    var size: CGFloat = 16
+
+    init(
+        state: TemporaryChatBadgeState,
+        foreground: Color = .primary,
+        activeColor: Color = .red,
+        size: CGFloat = 16
+    ) {
+        self.state = state
+        self.foreground = foreground
+        self.activeColor = activeColor
+        self.size = size
+    }
+
+    init(
+        isActive: Bool,
+        foreground: Color = .primary,
+        activeColor: Color = .red,
+        size: CGFloat = 16
+    ) {
+        self.init(
+            state: isActive ? .active : .inactive,
+            foreground: foreground,
+            activeColor: activeColor,
+            size: size
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            TemporaryChatBubbleShape()
+                .fill(fillColor)
+
+            TemporaryChatBubbleShape()
+                .stroke(
+                    strokeColor,
+                    style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round, dash: state == .inactive ? [2.2, 2.2] : [])
+                )
+
+            HStack(spacing: size * 0.1) {
+                dot
+                dot
+                dot
+            }
+            .offset(y: -size * 0.08)
+        }
+        .frame(width: size * 1.15, height: size)
+    }
+
+    private var dot: some View {
+        Circle()
+            .fill(dotColor)
+            .frame(width: size * 0.12, height: size * 0.12)
+    }
+
+    private var fillColor: Color {
+        switch state {
+        case .active:
+            return activeColor.opacity(0.9)
+        case .mixed, .inactive:
+            return .clear
+        }
+    }
+
+    private var strokeColor: Color {
+        switch state {
+        case .active, .mixed:
+            return activeColor
+        case .inactive:
+            return foreground.opacity(0.85)
+        }
+    }
+
+    private var dotColor: Color {
+        switch state {
+        case .active:
+            return .white
+        case .mixed:
+            return activeColor
+        case .inactive:
+            return foreground.opacity(0.9)
+        }
+    }
+}
+
 struct TwoPanelCrossSendControlView: View {
     let isInFlight: Bool
     let isFirstToSecondHighlighted: Bool

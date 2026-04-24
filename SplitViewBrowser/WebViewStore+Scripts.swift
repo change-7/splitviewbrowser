@@ -1632,8 +1632,8 @@ extension WebViewStore {
 
             const resolveButton = (element) => {
               if (!(element instanceof Element)) return null;
-              if (element.matches("button,[role='button']")) return element;
-              return element.closest("button,[role='button']");
+              if (element.matches("button,[role='button'],a[href]")) return element;
+              return element.closest("button,[role='button'],a[href]");
             };
 
             const uniqueElements = (elements) => {

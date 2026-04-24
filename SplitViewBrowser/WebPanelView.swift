@@ -101,8 +101,12 @@ struct WebPanelView: View {
 
             if supportsTemporaryChat {
                 Button(action: onTriggerTemporaryChat) {
-                    Image(systemName: showsTemporaryChatAsActive ? "plus.circle.fill" : "plus.circle")
-                        .foregroundStyle(showsTemporaryChatAsActive ? Color.accentColor : Color.primary)
+                    TemporaryChatBadgeView(
+                        isActive: showsTemporaryChatAsActive,
+                        foreground: .primary,
+                        activeColor: .red,
+                        size: 15
+                    )
                 }
                 .help(temporaryChatButtonHelp)
                 .accessibilityLabel(temporaryChatAccessibilityLabel)

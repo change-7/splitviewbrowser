@@ -5,6 +5,9 @@ struct QuickComposePopoverView: View {
     @Binding var text: String
     @Binding var selectedPanelIndices: Set<Int>
     let totalCount: Int
+    let supportsTemporaryChat: (Int) -> Bool
+    let storeForPanel: (Int) -> WebViewStore
+    let onToggleTemporaryChat: (Int) -> Void
     let onSubmit: () -> Void
     let onClose: () -> Void
 
@@ -64,6 +67,28 @@ struct QuickComposePopoverView: View {
             }
             .controlSize(.small)
 
+            if !temporaryChatPanelIndices.isEmpty {
+                GroupBox {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(temporaryChatPanelIndices, id: \.self) { index in
+                                QuickComposeTemporaryChatButton(
+                                    panelIndex: index,
+                                    store: storeForPanel(index),
+                                    onToggle: { onToggleTemporaryChat(index) }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    Text("패널별 임시채팅")
+                        .font(.caption.weight(.semibold))
+                }
+                .controlSize(.small)
+            }
+
             ZStack(alignment: .topLeading) {
                 SubmitAwareTextEditor(text: $text, onSubmit: onSubmit, shouldAutoFocus: true)
                     .frame(maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
@@ -110,6 +135,10 @@ struct QuickComposePopoverView: View {
         selectedPanelIndices.filter { $0 >= 0 && $0 < totalCount }.count
     }
 
+    private var temporaryChatPanelIndices: [Int] {
+        Array(0 ..< totalCount).filter(supportsTemporaryChat)
+    }
+
     private func panelSelectionBinding(for index: Int) -> Binding<Bool> {
         Binding(
             get: { selectedPanelIndices.contains(index) },
@@ -125,6 +154,31 @@ struct QuickComposePopoverView: View {
 
     private func normalizeSelections() {
         selectedPanelIndices = Set(selectedPanelIndices.filter { $0 >= 0 && $0 < totalCount })
+    }
+}
+
+private struct QuickComposeTemporaryChatButton: View {
+    let panelIndex: Int
+    @ObservedObject var store: WebViewStore
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 6) {
+                Text("P\(panelIndex + 1)")
+                    .font(.caption.weight(.semibold))
+                TemporaryChatBadgeView(
+                    state: store.temporaryChatState.isActive ? .active : .inactive,
+                    foreground: .primary,
+                    activeColor: .red,
+                    size: 14
+                )
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("패널 \(panelIndex + 1) 임시채팅 켜기/끄기")
+        .accessibilityLabel("패널 \(panelIndex + 1) 임시채팅 켜기 끄기")
     }
 }
 

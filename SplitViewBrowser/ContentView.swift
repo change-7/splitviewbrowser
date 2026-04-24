@@ -189,19 +189,6 @@ struct ContentView: View {
         }
         ToolbarItem(placement: .navigation) {
             ToolbarActionChipButton(
-                helpText: "현재 보이는 ChatGPT, Gemini, Claude, Grok 패널의 임시채팅 동시 실행",
-                accessibilityLabel: "지원 패널 임시채팅 동시 실행",
-                isEnabled: hasVisibleBulkTemporaryChatTargets,
-                palette: .neutral,
-                action: {
-                    triggerTemporaryChatForVisibleSupportedPanels()
-                }
-            ) {
-                Image(systemName: "sparkles")
-            }
-        }
-        ToolbarItem(placement: .navigation) {
-            ToolbarActionChipButton(
                 helpText: "현재 보이는 패널의 수집 답변 비우기",
                 accessibilityLabel: "수집 답변 비우기",
                 isEnabled: appState.visibleCollectedResponseCount > 0,
@@ -242,11 +229,14 @@ struct ContentView: View {
                     text: $quickComposeText,
                     selectedPanelIndices: $quickComposeTargetPanels,
                     totalCount: appState.panelCount,
+                    supportsTemporaryChat: panelSupportsTemporaryChat,
+                    storeForPanel: appState.webViewStore(for:),
+                    onToggleTemporaryChat: triggerTemporaryChat(for:),
                     onSubmit: sendQuickComposeTextToSelectedPanels,
                     onClose: { isQuickComposePresented = false }
                 )
                 .frame(
-                    width: min(max(proxy.size.width - 32, 620), 860),
+                    width: min(max((proxy.size.width - 32) * 0.7, 434), 602),
                     height: min(max(proxy.size.height - 64, 420), 620)
                 )
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -767,52 +757,13 @@ struct ContentView: View {
         }
     }
 
-    private var visibleBulkTemporaryChatTargetIndices: [Int] {
-        Array(0 ..< appState.panelCount).filter { index in
-            let serviceID = appState.service(at: index).id
-            return serviceID == AIService.chatGPT.id
-                || serviceID == AIService.gemini.id
-                || serviceID == AIService.claude.id
-                || serviceID == AIService.grok.id
-        }
-    }
-
-    private var hasVisibleBulkTemporaryChatTargets: Bool {
-        !visibleBulkTemporaryChatTargetIndices.isEmpty
-    }
-
-    private func triggerTemporaryChatForVisibleSupportedPanels() {
-        let panelIndices = visibleBulkTemporaryChatTargetIndices
-        guard !panelIndices.isEmpty else {
-            setCollectionStatus("현재 보이는 임시채팅 지원 패널이 없습니다", isError: true)
-            return
-        }
-
-        Task {
-            var clickedCount = 0
-            var failedCount = 0
-
-            for panelIndex in panelIndices {
-                let store = appState.webViewStore(for: panelIndex)
-                let result = await store.triggerTemporaryChat()
-                switch result {
-                case let .success(clickResult):
-                    if clickResult.clicked {
-                        clickedCount += 1
-                    } else {
-                        failedCount += 1
-                    }
-                case .failure:
-                    failedCount += 1
-                }
-            }
-
-            if failedCount == 0 {
-                setCollectionStatus("임시채팅 동시 실행 완료: \(clickedCount)/\(panelIndices.count) 패널", isError: false)
-            } else {
-                setCollectionStatus("임시채팅 동시 실행 일부 실패: 성공 \(clickedCount), 실패 \(failedCount)", isError: true)
-            }
-        }
+    private func panelSupportsTemporaryChat(_ panelIndex: Int) -> Bool {
+        guard panelIndex >= 0, panelIndex < appState.panelCount else { return false }
+        let serviceID = appState.service(at: panelIndex).id
+        return serviceID == AIService.chatGPT.id
+            || serviceID == AIService.gemini.id
+            || serviceID == AIService.claude.id
+            || serviceID == AIService.grok.id
     }
 
     private func triggerTemporaryChat(for panelIndex: Int) {
