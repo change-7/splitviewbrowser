@@ -89,6 +89,7 @@ final class WebViewStore: NSObject, ObservableObject {
     private var pendingClipboardBaselineChangeCount: Int?
     private var temporaryChatStateRefreshTask: Task<Void, Never>?
     private var inferredGeminiTemporaryChatActive = false
+    private var isPanelActive = true
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -321,6 +322,19 @@ final class WebViewStore: NSObject, ObservableObject {
         currentURLString = service.homeURL.absoluteString
         logger.log(.info, category: "WebView", "Load home: \(service.title)")
         webView.load(URLRequest(url: service.homeURL))
+    }
+
+    func setPanelActive(_ isActive: Bool) {
+        guard !hasPreparedForRelease else { return }
+        guard isPanelActive != isActive else { return }
+
+        isPanelActive = isActive
+        if isActive {
+            startTemporaryChatStatePollingIfNeeded()
+        } else {
+            temporaryChatStateRefreshTask?.cancel()
+            temporaryChatStateRefreshTask = nil
+        }
     }
 
     func reload() {
@@ -785,12 +799,18 @@ final class WebViewStore: NSObject, ObservableObject {
     private func scheduleTemporaryChatStateRefresh() {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 600_000_000)
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.isPanelActive else { return }
             self.refreshTemporaryChatStateIfSupported()
         }
     }
 
     private func startTemporaryChatStatePollingIfNeeded() {
+        guard isPanelActive else {
+            temporaryChatStateRefreshTask?.cancel()
+            temporaryChatStateRefreshTask = nil
+            return
+        }
+
         guard let currentService, Self.supportsTemporaryChat(service: currentService), !hasPreparedForRelease else {
             temporaryChatStateRefreshTask?.cancel()
             temporaryChatStateRefreshTask = nil

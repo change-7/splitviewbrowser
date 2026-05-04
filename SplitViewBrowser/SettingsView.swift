@@ -180,6 +180,20 @@ struct SettingsView: View {
                 Text("백그라운드 전환 시 숨겨진 패널 웹뷰는 정책에 따라 우선 정리됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                Divider()
+
+                Picker("Service Change", selection: panelServiceChangePolicyBinding) {
+                    ForEach(PanelServiceChangeStorePolicy.allCases) { policy in
+                        Text(policy.title).tag(policy)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("서비스 변경 웹뷰 처리 정책")
+
+                Text(appState.panelServiceChangeStorePolicy.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(.top, 4)
         }
@@ -366,6 +380,13 @@ struct SettingsView: View {
         Binding(
             get: { appState.webViewRetentionMode },
             set: { appState.setWebViewRetentionMode($0) }
+        )
+    }
+
+    private var panelServiceChangePolicyBinding: Binding<PanelServiceChangeStorePolicy> {
+        Binding(
+            get: { appState.panelServiceChangeStorePolicy },
+            set: { appState.setPanelServiceChangeStorePolicy($0) }
         )
     }
 

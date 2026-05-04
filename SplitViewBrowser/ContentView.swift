@@ -347,17 +347,19 @@ struct ContentView: View {
 
     private func horizontalPanelsView(proxy: GeometryProxy) -> some View {
         ScrollView(.horizontal) {
-            let panelCount = appState.panelCount
+            let panelStores = appState.visiblePanelStores
+            let panelCount = panelStores.count
             let currentPanelWidth = panelWidth(for: proxy.size.width, columns: panelCount)
 
             ZStack {
                 HStack(spacing: Layout.gutter) {
-                    ForEach(0 ..< panelCount, id: \.self) { index in
+                    ForEach(panelStores) { panelStore in
+                        let index = panelStore.index
                         WebPanelView(
                             panelIndex: index,
                             service: serviceBinding(for: index),
                             availableServices: appState.services,
-                            store: appState.webViewStore(for: index),
+                            store: panelStore.store,
                             isAnalysisTarget: appState.analysisTargetPanelIndex == index,
                             canClose: appState.panelCount > AppState.minPanels,
                             onSendCollectedResponsesToPanel: {
@@ -373,7 +375,6 @@ struct ContentView: View {
                                 closePanel(at: index)
                             }
                         )
-                            .id(panelViewIdentity(for: index))
                             .frame(width: currentPanelWidth)
                     }
                 }
@@ -401,10 +402,6 @@ struct ContentView: View {
 
     private func applyPresetFromToolbar(_ preset: ViewPreset) {
         appState.applyPreset(id: preset.id)
-    }
-
-    private func panelViewIdentity(for index: Int) -> String {
-        "panel-\(appState.panelStructureVersion)-\(index)"
     }
 
     private func addPresetFromToolbar() {
@@ -938,30 +935,6 @@ struct ContentView: View {
 
     private var toolbarNonePresetTitle: String {
         appState.activePresetID == nil ? "없음 ✓" : "없음"
-    }
-
-    private func presetSelectionLabel(
-        title: String,
-        isSelected: Bool
-    ) -> some View {
-        Text(title)
-            .font(.system(size: 12, weight: .semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .frame(minHeight: 28)
-            .foregroundStyle(Color.primary)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(
-                        isSelected ? Color.secondary.opacity(0.45) : Color.secondary.opacity(0.25),
-                        lineWidth: 1
-                    )
-            )
     }
 
 }

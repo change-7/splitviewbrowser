@@ -43,9 +43,6 @@ struct WebPanelView: View {
         .onAppear {
             store.goHomeIfNeeded(service: service)
         }
-        .onChange(of: service) { newService in
-            store.goHome(service: newService)
-        }
         .onChange(of: store.lastCopiedAssistantResponse?.id) { _ in
             collectDirectCopiedResponseIfAvailable()
         }

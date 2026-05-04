@@ -253,6 +253,72 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
+    func testServiceChangeRecreatesPanelStoreWithoutChangingPanelSlotIdentity() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        let initialSlotID = state.panelSlots[0].id
+        let initialStore = state.webViewStore(for: 0)
+        let initialVersion = state.panelStructureVersion
+
+        state.setService(.gemini, at: 0)
+
+        let recreatedStore = state.webViewStore(for: 0)
+        XCTAssertFalse(initialStore === recreatedStore)
+        XCTAssertEqual(state.panelSlots[0].id, initialSlotID)
+        XCTAssertEqual(state.panelStructureVersion, initialVersion)
+        XCTAssertEqual(state.service(at: 0).id, AIService.gemini.id)
+    }
+
+    @MainActor
+    func testRemovingMiddlePanelKeepsRemainingPanelSlotsAndStoresStable() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(3)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.setService(.grok, at: 2)
+
+        let firstSlotID = state.panelSlots[0].id
+        let middleSlotID = state.panelSlots[1].id
+        let lastSlotID = state.panelSlots[2].id
+        let firstStore = state.webViewStore(for: 0)
+        let middleStore = state.webViewStore(for: 1)
+        let lastStore = state.webViewStore(for: 2)
+
+        state.removePanel(at: 1)
+
+        XCTAssertEqual(state.panelCount, 2)
+        XCTAssertEqual(state.panelSlots[0].id, firstSlotID)
+        XCTAssertEqual(state.panelSlots[1].id, lastSlotID)
+        XCTAssertNotEqual(state.panelSlots[2].id, middleSlotID)
+        XCTAssertTrue(state.webViewStore(for: 0) === firstStore)
+        XCTAssertTrue(state.webViewStore(for: 1) === lastStore)
+        XCTAssertFalse(state.webViewStore(for: 1) === middleStore)
+        XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
+        XCTAssertEqual(state.service(at: 1).id, AIService.grok.id)
+    }
+
+    @MainActor
+    func testServiceChangeCanPreserveExistingPanelStore() {
+        let defaults = makeDefaults()
+        defaults.set(PanelServiceChangeStorePolicy.preserveSession.rawValue, forKey: "panelServiceChangeStorePolicy")
+        let state = AppState(defaults: defaults)
+
+        let initialStore = state.webViewStore(for: 0)
+        let initialVersion = state.panelStructureVersion
+
+        state.setService(.gemini, at: 0)
+
+        let preservedStore = state.webViewStore(for: 0)
+        XCTAssertTrue(initialStore === preservedStore)
+        XCTAssertEqual(state.panelStructureVersion, initialVersion)
+        XCTAssertEqual(state.panelServiceChangeStorePolicy, .preserveSession)
+        XCTAssertEqual(state.service(at: 0).id, AIService.gemini.id)
+    }
+
+    @MainActor
     func testRemovePanelReindexesServicesResponsesAndAnalysisTarget() {
         let defaults = makeDefaults()
         let state = AppState(defaults: defaults)

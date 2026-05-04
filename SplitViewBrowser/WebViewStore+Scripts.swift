@@ -1659,11 +1659,6 @@ extension WebViewStore {
                 .filter((button) => button instanceof Element)
                 .filter((button) => isVisible(button));
 
-            const hasPressedState = (button) => {
-              if (!(button instanceof Element)) return false;
-              return button.getAttribute("aria-pressed") === "true" || button.getAttribute("aria-checked") === "true";
-            };
-
             const collectVisibleText = () =>
               Array.from(document.querySelectorAll("body *"))
                 .filter((element) => isVisible(element))
@@ -1683,9 +1678,17 @@ extension WebViewStore {
                   ...Array.from(document.querySelectorAll("h1[data-testid='temporary-chat-label']"))
                 ]
               ).filter((element) => isVisible(element));
+              const activeHeaderMarkers = uniqueElements(
+                Array.from(document.querySelectorAll("[data-testid='thread-header-right-actions-container']"))
+              ).filter((element) => {
+                if (!isVisible(element)) return false;
+                const text = (element.textContent || "").replace(/\\s+/g, " ").trim().toLowerCase();
+                return text.includes("임시 채팅") || text.includes("temporary chat");
+              });
 
               if (
                 activeCards.length ||
+                activeHeaderMarkers.length ||
                 containsAllSnippets([
                   "임시 채팅",
                   "이 채팅은 사용자님의 채팅 기록에 나타나지 않으며",
