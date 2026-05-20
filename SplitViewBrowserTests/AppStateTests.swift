@@ -281,6 +281,24 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
+    func testClearCollectedResponsesForSpecificPanelsOnly() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(3)
+        state.collectPanelResponse(panelIndex: 0, service: .chatGPT, text: "A")
+        state.collectPanelResponse(panelIndex: 1, service: .gemini, text: "B")
+        state.collectPanelResponse(panelIndex: 2, service: .perplexity, text: "C")
+
+        state.clearCollectedResponses(for: [1, 99, -1])
+
+        XCTAssertEqual(state.collectedResponse(for: 0)?.text, "A")
+        XCTAssertNil(state.collectedResponse(for: 1))
+        XCTAssertEqual(state.collectedResponse(for: 2)?.text, "C")
+        XCTAssertEqual(state.visibleCollectedResponseCount, 2)
+    }
+
+    @MainActor
     func testRemoveTargetPanelAssignsNextValidPanelAndPersistsState() {
         let defaults = makeDefaults()
         let state = AppState(defaults: defaults)

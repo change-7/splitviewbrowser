@@ -476,6 +476,16 @@ final class AppState: ObservableObject {
         logger.log(.info, category: "Collection", "Cleared collected responses for visible panels")
     }
 
+    func clearCollectedResponses(for panelIndices: [Int]) {
+        let targetIndexes = Set(panelIndices.filter { $0 >= 0 && $0 < Self.maxPanels })
+        guard !targetIndexes.isEmpty else { return }
+
+        let filtered = collectedResponsesByPanel.filter { !targetIndexes.contains($0.key) }
+        guard filtered != collectedResponsesByPanel else { return }
+        collectedResponsesByPanel = filtered
+        logger.log(.info, category: "Collection", "Cleared collected responses for \(targetIndexes.count) panels")
+    }
+
     func buildCollectedResponsesAnalysisPrompt() -> String? {
         let responses = visibleCollectedResponses
         guard !responses.isEmpty else { return nil }

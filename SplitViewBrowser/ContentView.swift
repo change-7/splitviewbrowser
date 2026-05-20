@@ -471,6 +471,7 @@ struct ContentView: View {
         var clickedPanelIndices: [Int] = []
         var clickedCount = 0
         var failedCount = 0
+        appState.clearCollectedResponses(for: panelIndices)
 
         for panelIndex in panelIndices {
             let store = appState.webViewStore(for: panelIndex)

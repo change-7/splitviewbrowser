@@ -515,16 +515,18 @@ extension WebViewStore {
               return true;
             };
 
-            const performCopyClick = (target, targetIndex) => {
+            const performCopyClick = (target, targetIndex, capturedTextOverride = "") => {
               if (!(target instanceof HTMLElement)) {
                 return JSON.stringify({ ok: false, reason: "대상 복사 버튼을 선택하지 못했습니다." });
               }
+              const capturedText = capturedTextOverride || extractCapturedText(target);
               clickButtonLikeUser(target);
 
               return JSON.stringify({
                 ok: true,
                 clicked: true,
                 targetOffset: targetIndex,
+                text: capturedText || null,
                 message: targetIndex === 0 ? "최신 답변 복사 버튼 클릭 완료" : "직전 답변 복사 버튼 클릭 완료"
               });
             };
@@ -626,6 +628,7 @@ extension WebViewStore {
 
               const targetIndex = Math.min(targetOffset, Math.max(0, orderedMoreButtons.length - 1));
               const targetMoreButton = orderedMoreButtons[targetIndex];
+              const capturedGeminiText = extractCapturedText(targetMoreButton);
               clickButtonLikeUser(targetMoreButton);
 
               const menuCopyCandidates = uniqueElements(
@@ -656,7 +659,7 @@ extension WebViewStore {
                 });
               }
 
-              return performCopyClick(menuCopyCandidates[0], targetIndex);
+              return performCopyClick(menuCopyCandidates[0], targetIndex, capturedGeminiText);
             }
 
             if (host.includes("claude.ai")) {

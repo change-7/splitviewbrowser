@@ -87,6 +87,7 @@ final class WebViewStore: NSObject, ObservableObject {
     private var lastComposerSendThrottle: ComposerSendThrottle?
     private weak var cachedEmbeddedScrollView: NSScrollView?
     private var pendingClipboardBaselineChangeCount: Int?
+    private var clipboardFallbackSuppressedUntil: Date?
     private var temporaryChatStateRefreshTask: Task<Void, Never>?
     private var inferredGeminiTemporaryChatActive = false
 
@@ -107,6 +108,7 @@ final class WebViewStore: NSObject, ObservableObject {
             struct Payload: Decodable {
                 let text: String?
                 let host: String?
+                let fallbackClipboard: Bool?
             }
 
             guard let data = payloadJSON.data(using: .utf8),
@@ -118,7 +120,8 @@ final class WebViewStore: NSObject, ObservableObject {
             let trimmed = (payload.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             self.captureCopiedAnswerFromClipboard(
                 host: host.isEmpty ? nil : payload.host,
-                fallbackText: trimmed.isEmpty ? nil : trimmed
+                fallbackText: trimmed.isEmpty ? nil : trimmed,
+                fallbackClipboard: payload.fallbackClipboard ?? trimmed.isEmpty
             )
         }
 
@@ -234,10 +237,17 @@ final class WebViewStore: NSObject, ObservableObject {
         return currentService.trustsHost(host)
     }
 
-    private func publishCopiedAssistantResponse(text: String, source: String) {
+    private func publishCopiedAssistantResponse(
+        text: String,
+        source: String,
+        suppressClipboardFallback: Bool = false
+    ) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         pendingClipboardBaselineChangeCount = nil
+        if suppressClipboardFallback {
+            clipboardFallbackSuppressedUntil = Date().addingTimeInterval(1.5)
+        }
 
         lastCopiedAssistantResponse = AssistantCopiedResponse(
             text: trimmed,
@@ -248,8 +258,19 @@ final class WebViewStore: NSObject, ObservableObject {
 
     private func captureCopiedAnswerFromClipboard(
         host: String?,
-        fallbackText: String?
+        fallbackText: String?,
+        fallbackClipboard: Bool
     ) {
+        let trimmedFallback = fallbackText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !fallbackClipboard, !trimmedFallback.isEmpty {
+            publishCopiedAssistantResponse(
+                text: trimmedFallback,
+                source: "dom-fallback",
+                suppressClipboardFallback: true
+            )
+            return
+        }
+
         if publishCopiedAnswerFromClipboardIfAvailable() {
             return
         }
@@ -265,8 +286,12 @@ final class WebViewStore: NSObject, ObservableObject {
                 }
             }
 
-            if let fallbackText, !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                self.publishCopiedAssistantResponse(text: fallbackText, source: "dom-fallback")
+            if !trimmedFallback.isEmpty {
+                self.publishCopiedAssistantResponse(
+                    text: trimmedFallback,
+                    source: "dom-fallback",
+                    suppressClipboardFallback: true
+                )
                 return
             }
             self.pendingClipboardBaselineChangeCount = nil
@@ -276,6 +301,13 @@ final class WebViewStore: NSObject, ObservableObject {
 
     @discardableResult
     private func publishCopiedAnswerFromClipboardIfAvailable() -> Bool {
+        if let suppressedUntil = clipboardFallbackSuppressedUntil {
+            if suppressedUntil > Date() {
+                return false
+            }
+            clipboardFallbackSuppressedUntil = nil
+        }
+
         if let baseline = pendingClipboardBaselineChangeCount,
            PlatformClipboard.changeCount <= baseline
         {
@@ -590,6 +622,7 @@ final class WebViewStore: NSObject, ObservableObject {
                     let message: String?
                     let reason: String?
                     let retry: Bool?
+                    let text: String?
                 }
 
                 do {
@@ -620,6 +653,17 @@ final class WebViewStore: NSObject, ObservableObject {
                         self.pendingClipboardBaselineChangeCount = nil
                         completion(.failure(error))
                         return
+                    }
+
+                    if payload.clicked == true,
+                       let text = payload.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !text.isEmpty
+                    {
+                        self.publishCopiedAssistantResponse(
+                            text: text,
+                            source: "dom-script",
+                            suppressClipboardFallback: true
+                        )
                     }
 
                     completion(
