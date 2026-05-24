@@ -239,6 +239,40 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
+    func testAddPanelUsesConfiguredServicePriority() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(2)
+        state.setService(.chatGPT, at: 0)
+        state.setService(.gemini, at: 1)
+        state.moveAddPanelServicePriority(id: AIService.grok.id, offset: -2)
+        state.addPanel()
+
+        XCTAssertEqual(state.panelCount, 3)
+        XCTAssertEqual(state.service(at: 2).id, AIService.grok.id)
+
+        let restored = AppState(defaults: defaults)
+        XCTAssertEqual(restored.addPanelServicePriorityIDs[2], AIService.grok.id)
+        XCTAssertEqual(restored.service(at: 2).id, AIService.grok.id)
+    }
+
+    @MainActor
+    func testCustomServiceIsAddedToAndRemovedFromAddPanelPriority() throws {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        try state.addCustomService(title: "Search Lab", urlString: "https://example.com")
+        let customService = try XCTUnwrap(state.customServices.first)
+
+        XCTAssertEqual(state.addPanelServicePriorityIDs.last, customService.id)
+
+        try state.removeCustomService(id: customService.id)
+
+        XCTAssertFalse(state.addPanelServicePriorityIDs.contains(customService.id))
+    }
+
+    @MainActor
     func testPanelStructureVersionChangesWhenPanelsAreAddedOrRemoved() {
         let defaults = makeDefaults()
         let state = AppState(defaults: defaults)

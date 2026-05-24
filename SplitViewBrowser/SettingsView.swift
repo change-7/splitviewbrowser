@@ -139,6 +139,7 @@ struct SettingsView: View {
         switch selectedCategory {
         case .general:
             panelWidthPolicySection
+            serviceAddOrderSection
             retentionPolicySection
             twoPanelCrossSendSection
         case .customSites:
@@ -158,6 +159,48 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+        }
+    }
+
+    private var serviceAddOrderSection: some View {
+        GroupBox("Panel Add Order") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("패널 추가 버튼을 누르면 현재 보이는 패널에 없는 사이트를 아래 순서대로 추가합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let services = appState.addPanelServicePriority
+                if services.isEmpty {
+                    Text("No services available.")
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 6)
+                } else {
+                    LazyVStack(spacing: 6) {
+                        ForEach(Array(services.enumerated()), id: \.element.id) { index, service in
+                            AddPanelServicePriorityRow(
+                                service: service,
+                                rank: index + 1,
+                                canMoveUp: index > 0,
+                                canMoveDown: index < services.count - 1,
+                                onMoveUp: { moveAddPanelServiceUp(service) },
+                                onMoveDown: { moveAddPanelServiceDown(service) }
+                            )
+                        }
+                    }
+                }
+
+                HStack {
+                    Spacer()
+
+                    Button("Reset Default") {
+                        appState.resetAddPanelServicePriority()
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("패널 추가 순서 기본값으로 재설정")
+                }
+            }
             .padding(.top, 4)
         }
     }
@@ -397,6 +440,14 @@ struct SettingsView: View {
         )
     }
 
+    private func moveAddPanelServiceUp(_ service: AIService) {
+        appState.moveAddPanelServicePriority(id: service.id, offset: -1)
+    }
+
+    private func moveAddPanelServiceDown(_ service: AIService) {
+        appState.moveAddPanelServicePriority(id: service.id, offset: 1)
+    }
+
     private func saveCurrentPreset() {
         do {
             let window = preferredContentWindow()
@@ -474,6 +525,65 @@ struct SettingsView: View {
         presetMessageIsError = false
     }
 
+}
+
+private struct AddPanelServicePriorityRow: View {
+    let service: AIService
+    let rank: Int
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("\(rank)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(service.title)
+                    .lineLimit(1)
+
+                Text(service.isBuiltIn ? service.urlString : "Custom Site · \(service.urlString)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                onMoveUp()
+            } label: {
+                Image(systemName: "arrow.up")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canMoveUp)
+            .help("Move Up")
+            .accessibilityLabel("\(service.title) 패널 추가 순서 위로 이동")
+
+            Button {
+                onMoveDown()
+            } label: {
+                Image(systemName: "arrow.down")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canMoveDown)
+            .help("Move Down")
+            .accessibilityLabel("\(service.title) 패널 추가 순서 아래로 이동")
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+    }
 }
 
 private struct PresetEditorRow: View {

@@ -298,6 +298,7 @@ final class AppState: ObservableObject {
         static let webViewRetentionMode = "webViewRetentionMode"
         static let panelServiceChangeStorePolicy = "panelServiceChangeStorePolicy"
         static let twoPanelCrossSendEnabled = "twoPanelCrossSendEnabled"
+        static let addPanelServicePriority = "addPanelServicePriority"
     }
 
     static let minPanels = 1
@@ -308,6 +309,7 @@ final class AppState: ObservableObject {
     @Published private(set) var panelServiceIDs: [String]
     @Published private(set) var panelSlots: [PanelSlot]
     @Published private(set) var services: [AIService]
+    @Published private(set) var addPanelServicePriorityIDs: [String]
     @Published private(set) var presets: [ViewPreset]
     @Published private(set) var activePresetID: String?
     @Published private(set) var savedPrompts: [SavedPrompt]
@@ -339,6 +341,10 @@ final class AppState: ObservableObject {
 
         let savedCount = defaults.object(forKey: DefaultsKey.panelCount) as? Int ?? 2
         let restoredServices = AIService.builtInServices + Self.restoreCustomServices(from: defaults)
+        let restoredAddPanelServicePriorityIDs = Self.restoreAddPanelServicePriorityIDs(
+            from: defaults,
+            services: restoredServices
+        )
         let initialPanelCount = Self.clampPanelCount(savedCount)
         let didClampPanelCount = savedCount != initialPanelCount
         let restoredPanelServiceIDs = Self.normalizedServiceIDs(
@@ -349,6 +355,7 @@ final class AppState: ObservableObject {
         panelServiceIDs = restoredPanelServiceIDs
         panelSlots = Self.makePanelSlots(from: restoredPanelServiceIDs)
         services = restoredServices
+        addPanelServicePriorityIDs = restoredAddPanelServicePriorityIDs
         presets = Self.restorePresets(from: defaults)
         activePresetID = Self.restoreActivePresetID(from: defaults)
         savedPrompts = Self.restoreSavedPrompts(from: defaults)
@@ -948,7 +955,9 @@ final class AppState: ObservableObject {
 
         services.append(service)
         rebuildServiceIndex()
+        normalizeAddPanelServicePriorityAndPersistIfNeeded(persist: false)
         persistCustomServices()
+        persistAddPanelServicePriority()
         logger.log(.info, category: "Service", "Added custom service \(service.title)")
     }
 
@@ -961,6 +970,7 @@ final class AppState: ObservableObject {
         services.removeAll(where: { $0.id == id })
         rebuildServiceIndex()
         persistCustomServices()
+        normalizeAddPanelServicePriorityAndPersistIfNeeded()
         normalizePanelSelectionsAndPersistIfNeeded()
         normalizePresetsAndPersistIfNeeded()
         clearActivePresetIfNoLongerMatchingCurrentState()
@@ -969,6 +979,30 @@ final class AppState: ObservableObject {
 
     var customServices: [AIService] {
         services.filter { !$0.isBuiltIn }
+    }
+
+    var addPanelServicePriority: [AIService] {
+        addPanelServicePriorityIDs.compactMap { servicesByID[$0] }
+    }
+
+    func moveAddPanelServicePriority(id: String, offset: Int) {
+        guard offset != 0 else { return }
+        guard let sourceIndex = addPanelServicePriorityIDs.firstIndex(of: id) else { return }
+        let targetIndex = max(0, min(addPanelServicePriorityIDs.count - 1, sourceIndex + offset))
+        guard targetIndex != sourceIndex else { return }
+
+        let moved = addPanelServicePriorityIDs.remove(at: sourceIndex)
+        addPanelServicePriorityIDs.insert(moved, at: targetIndex)
+        persistAddPanelServicePriority()
+        logger.log(.info, category: "Service", "Moved add-panel service priority to index \(targetIndex)")
+    }
+
+    func resetAddPanelServicePriority() {
+        let defaults = Self.defaultAddPanelServicePriorityIDs(for: services)
+        guard addPanelServicePriorityIDs != defaults else { return }
+        addPanelServicePriorityIDs = defaults
+        persistAddPanelServicePriority()
+        logger.log(.info, category: "Service", "Reset add-panel service priority")
     }
 
     private static func clampPanelCount(_ value: Int) -> Int {
@@ -1082,12 +1116,24 @@ final class AppState: ObservableObject {
         defaults.object(forKey: DefaultsKey.twoPanelCrossSendEnabled) as? Bool ?? false
     }
 
+    private static func restoreAddPanelServicePriorityIDs(
+        from defaults: UserDefaults,
+        services: [AIService]
+    ) -> [String] {
+        guard let stored = defaults.array(forKey: DefaultsKey.addPanelServicePriority) as? [String] else {
+            return defaultAddPanelServicePriorityIDs(for: services)
+        }
+
+        return normalizedAddPanelServicePriorityIDs(from: stored, services: services)
+    }
+
     private func normalizeRestoredStateAndPersistIfNeeded(
         forcePersist: Bool = false,
         cancelPendingWrites: Bool = false
     ) {
         var shouldPersist = forcePersist
         shouldPersist = normalizePanelSelectionsAndPersistIfNeeded(persist: false) || shouldPersist
+        shouldPersist = normalizeAddPanelServicePriorityAndPersistIfNeeded(persist: false) || shouldPersist
         shouldPersist = normalizePresetsAndPersistIfNeeded(persist: false) || shouldPersist
         shouldPersist = normalizeActivePresetAndPersistIfNeeded(persist: false) || shouldPersist
         shouldPersist = clearActivePresetIfNoLongerMatchingCurrentState(persist: false) || shouldPersist
@@ -1112,6 +1158,21 @@ final class AppState: ObservableObject {
         applyWebViewStoreServicePolicy(from: previousSlots, to: panelSlots)
         if persist {
             persistPanelServiceIDs()
+        }
+        return true
+    }
+
+    @discardableResult
+    private func normalizeAddPanelServicePriorityAndPersistIfNeeded(persist: Bool = true) -> Bool {
+        let updated = Self.normalizedAddPanelServicePriorityIDs(
+            from: addPanelServicePriorityIDs,
+            services: services
+        )
+
+        guard updated != addPanelServicePriorityIDs else { return false }
+        addPanelServicePriorityIDs = updated
+        if persist {
+            persistAddPanelServicePriority()
         }
         return true
     }
@@ -1411,19 +1472,40 @@ final class AppState: ObservableObject {
 
     private func nextAppendedPanelServiceID() -> String {
         let visibleServiceIDs = Array(panelServiceIDs.prefix(panelCount))
-        let priorityIDs = [
-            AIService.chatGPT.id,
-            AIService.gemini.id,
-            AIService.perplexity.id,
-            AIService.claude.id,
-            AIService.grok.id,
-        ]
 
-        for candidate in priorityIDs where !visibleServiceIDs.contains(candidate) {
+        for candidate in addPanelServicePriorityIDs
+            where servicesByID[candidate] != nil && !visibleServiceIDs.contains(candidate) {
             return candidate
         }
 
         return visibleServiceIDs.last ?? Self.fallbackServiceID
+    }
+
+    private static func defaultAddPanelServicePriorityIDs(for services: [AIService]) -> [String] {
+        services.map(\.id)
+    }
+
+    private static func normalizedAddPanelServicePriorityIDs(
+        from source: [String],
+        services: [AIService]
+    ) -> [String] {
+        let availableIDs = Set(services.map(\.id))
+        var seenIDs = Set<String>()
+        var normalized: [String] = []
+
+        for rawID in source {
+            let id = AIService.legacyID(from: rawID) ?? rawID
+            guard availableIDs.contains(id), !seenIDs.contains(id) else { continue }
+            normalized.append(id)
+            seenIDs.insert(id)
+        }
+
+        for service in services where !seenIDs.contains(service.id) {
+            normalized.append(service.id)
+            seenIDs.insert(service.id)
+        }
+
+        return normalized
     }
 
     private func removeCollectedResponse(forSlotID slotID: String) {
@@ -1690,6 +1772,10 @@ final class AppState: ObservableObject {
         defaults.set(isTwoPanelCrossSendEnabled, forKey: DefaultsKey.twoPanelCrossSendEnabled)
     }
 
+    private func writeAddPanelServicePriorityToDefaults() {
+        defaults.set(addPanelServicePriorityIDs, forKey: DefaultsKey.addPanelServicePriority)
+    }
+
     private func writeAllDefaultsNow() {
         writePanelCountToDefaults()
         writePanelServiceIDsToDefaults()
@@ -1701,6 +1787,7 @@ final class AppState: ObservableObject {
         writeWebViewRetentionModeToDefaults()
         writePanelServiceChangeStorePolicyToDefaults()
         writeTwoPanelCrossSendEnabledToDefaults()
+        writeAddPanelServicePriorityToDefaults()
     }
 
     private func cancelPendingDefaultWrites() {
@@ -1779,6 +1866,12 @@ final class AppState: ObservableObject {
     private func persistTwoPanelCrossSendEnabled() {
         scheduleDefaultsWrite(key: DefaultsKey.twoPanelCrossSendEnabled) { [weak self] in
             self?.writeTwoPanelCrossSendEnabledToDefaults()
+        }
+    }
+
+    private func persistAddPanelServicePriority() {
+        scheduleDefaultsWrite(key: DefaultsKey.addPanelServicePriority) { [weak self] in
+            self?.writeAddPanelServicePriorityToDefaults()
         }
     }
 
