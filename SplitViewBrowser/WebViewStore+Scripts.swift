@@ -515,16 +515,18 @@ extension WebViewStore {
               return true;
             };
 
-            const performCopyClick = (target, targetIndex) => {
+            const performCopyClick = (target, targetIndex, capturedTextOverride = "") => {
               if (!(target instanceof HTMLElement)) {
                 return JSON.stringify({ ok: false, reason: "대상 복사 버튼을 선택하지 못했습니다." });
               }
+              const capturedText = capturedTextOverride || extractCapturedText(target);
               clickButtonLikeUser(target);
 
               return JSON.stringify({
                 ok: true,
                 clicked: true,
                 targetOffset: targetIndex,
+                text: capturedText || null,
                 message: targetIndex === 0 ? "최신 답변 복사 버튼 클릭 완료" : "직전 답변 복사 버튼 클릭 완료"
               });
             };
@@ -626,6 +628,7 @@ extension WebViewStore {
 
               const targetIndex = Math.min(targetOffset, Math.max(0, orderedMoreButtons.length - 1));
               const targetMoreButton = orderedMoreButtons[targetIndex];
+              const capturedGeminiText = extractCapturedText(targetMoreButton);
               clickButtonLikeUser(targetMoreButton);
 
               const menuCopyCandidates = uniqueElements(
@@ -656,7 +659,7 @@ extension WebViewStore {
                 });
               }
 
-              return performCopyClick(menuCopyCandidates[0], targetIndex);
+              return performCopyClick(menuCopyCandidates[0], targetIndex, capturedGeminiText);
             }
 
             if (host.includes("claude.ai")) {
@@ -1176,6 +1179,7 @@ extension WebViewStore {
               const isCustom = customSelectorSet.has(selector);
               for (const node of enabled) {
                 if (!(node instanceof HTMLElement)) continue;
+                if (!isCustom && !looksLikeSendButton(node)) continue;
                 const score = scoreSendButton(node, composer, isCustom);
                 if (score > bestScore) {
                   best = node;
@@ -1659,6 +1663,11 @@ extension WebViewStore {
                 .filter((button) => button instanceof Element)
                 .filter((button) => isVisible(button));
 
+            const hasPressedState = (button) => {
+              if (!(button instanceof Element)) return false;
+              return button.getAttribute("aria-pressed") === "true" || button.getAttribute("aria-checked") === "true";
+            };
+
             const collectVisibleText = () =>
               Array.from(document.querySelectorAll("body *"))
                 .filter((element) => isVisible(element))
@@ -1667,32 +1676,72 @@ extension WebViewStore {
                 .join("\\n");
 
             const pageText = collectVisibleText();
+            const normalizedPageText = pageText.toLowerCase();
 
             const containsAllSnippets = (snippets) =>
               snippets.every((snippet) => pageText.includes(snippet));
 
+            const containsAnySnippet = (snippets) =>
+              snippets.some((snippet) => normalizedPageText.includes(String(snippet).toLowerCase()));
+
             if (host.includes("openai.com") || host.includes("chatgpt.com")) {
+              const activeButtons = queryButtons([
+                "button[aria-label='임시 채팅 끄기']",
+                "button[aria-label*='임시 채팅 끄' i]",
+                "button[aria-label='Turn off temporary chat']",
+                "button[aria-label*='turn off temporary chat' i]",
+                "button[aria-label='Disable temporary chat']",
+                "button[aria-label*='disable temporary chat' i]"
+              ]);
+
+              if (activeButtons.some(hasPressedState) || activeButtons.length) {
+                return JSON.stringify({ supported: true, active: true });
+              }
+
               const activeCards = uniqueElements(
                 [
                   ...Array.from(document.querySelectorAll("[data-testid='temporary-chat-label']")),
-                  ...Array.from(document.querySelectorAll("h1[data-testid='temporary-chat-label']"))
+                  ...Array.from(document.querySelectorAll("h1[data-testid='temporary-chat-label']")),
+                  ...Array.from(document.querySelectorAll("[data-testid*='temporary-chat' i]")),
+                  ...Array.from(document.querySelectorAll("[aria-label*='temporary chat' i]")),
+                  ...Array.from(document.querySelectorAll("[aria-label*='임시 채팅' i]"))
                 ]
               ).filter((element) => isVisible(element));
-              const activeHeaderMarkers = uniqueElements(
-                Array.from(document.querySelectorAll("[data-testid='thread-header-right-actions-container']"))
-              ).filter((element) => {
-                if (!isVisible(element)) return false;
-                const text = (element.textContent || "").replace(/\\s+/g, " ").trim().toLowerCase();
-                return text.includes("임시 채팅") || text.includes("temporary chat");
-              });
 
               if (
-                activeCards.length ||
-                activeHeaderMarkers.length ||
+                activeCards.some((element) => {
+                  const label = [
+                    element.getAttribute("aria-label") || "",
+                    element.getAttribute("data-testid") || "",
+                    element.textContent || ""
+                  ].join(" ").toLowerCase();
+                  if (/turn on|enable|켜기|시작/.test(label)) return false;
+                  return /temporary-chat|temporary chat|임시 채팅/.test(label);
+                }) ||
                 containsAllSnippets([
                   "임시 채팅",
                   "이 채팅은 사용자님의 채팅 기록에 나타나지 않으며",
                   "당사 모델 훈련에 사용되지 않습니다"
+                ]) ||
+                containsAllSnippets([
+                  "임시 채팅",
+                  "기록에 나타나지",
+                  "훈련에 사용되지"
+                ]) ||
+                containsAllSnippets([
+                  "temporary chat",
+                  "won't appear in history",
+                  "won't be used to train"
+                ]) ||
+                (
+                  containsAnySnippet(["temporary chat", "임시 채팅"]) &&
+                  containsAnySnippet(["history", "기록"]) &&
+                  containsAnySnippet(["train", "training", "훈련", "학습"])
+                ) ||
+                (
+                  containsAnySnippet(["temporary chat", "임시 채팅"]) &&
+                  containsAnySnippet(["model", "모델"]) &&
+                  containsAnySnippet(["won't", "will not", "사용되지", "사용 안"])
                 ])
               ) {
                 return JSON.stringify({ supported: true, active: true });

@@ -1,4 +1,5 @@
 import XCTest
+import WebKit
 @testable import SplitViewBrowser
 
 final class AppStateTests: XCTestCase {
@@ -7,6 +8,56 @@ final class AppStateTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults
+    }
+
+    func testExternalNavigationPolicyOnlyOpensUserActivatedLinks() {
+        XCTAssertTrue(
+            ExternalNavigationPolicy.shouldOpenExternal(
+                canOpenExternally: true,
+                navigationType: .linkActivated
+            )
+        )
+
+        XCTAssertFalse(
+            ExternalNavigationPolicy.shouldOpenExternal(
+                canOpenExternally: true,
+                navigationType: .other
+            )
+        )
+
+        XCTAssertFalse(
+            ExternalNavigationPolicy.shouldOpenExternal(
+                canOpenExternally: true,
+                navigationType: .formSubmitted
+            )
+        )
+    }
+
+    func testExternalNavigationPolicyRespectsExternalURLGate() {
+        XCTAssertFalse(
+            ExternalNavigationPolicy.shouldOpenExternal(
+                canOpenExternally: false,
+                navigationType: .linkActivated
+            )
+        )
+    }
+
+    func testGeminiComposerRuleAvoidsBroadGeminiButtonSelector() throws {
+        let rule = try XCTUnwrap(ComposerAutomationCatalog.defaultRule(for: .gemini))
+
+        XCTAssertFalse(rule.sendButtonSelectors.contains("button[aria-label*='Gemini' i]"))
+        XCTAssertTrue(rule.sendButtonSelectors.contains("button[aria-label*='Send' i]"))
+        XCTAssertTrue(rule.sendButtonSelectors.contains("button[type='submit']"))
+    }
+
+    @MainActor
+    func testTemporaryChatStateScriptRecognizesChatGPTActiveControls() {
+        let script = WebViewStore.temporaryChatStateScriptSource
+
+        XCTAssertTrue(script.contains("Turn off temporary chat"))
+        XCTAssertTrue(script.contains("임시 채팅 끄기"))
+        XCTAssertTrue(script.contains("won't be used to train"))
+        XCTAssertTrue(script.contains("훈련"))
     }
 
     @MainActor
@@ -287,72 +338,6 @@ final class AppStateTests: XCTestCase {
     }
 
     @MainActor
-    func testServiceChangeRecreatesPanelStoreWithoutChangingPanelSlotIdentity() {
-        let defaults = makeDefaults()
-        let state = AppState(defaults: defaults)
-
-        let initialSlotID = state.panelSlots[0].id
-        let initialStore = state.webViewStore(for: 0)
-        let initialVersion = state.panelStructureVersion
-
-        state.setService(.gemini, at: 0)
-
-        let recreatedStore = state.webViewStore(for: 0)
-        XCTAssertFalse(initialStore === recreatedStore)
-        XCTAssertEqual(state.panelSlots[0].id, initialSlotID)
-        XCTAssertEqual(state.panelStructureVersion, initialVersion)
-        XCTAssertEqual(state.service(at: 0).id, AIService.gemini.id)
-    }
-
-    @MainActor
-    func testRemovingMiddlePanelKeepsRemainingPanelSlotsAndStoresStable() {
-        let defaults = makeDefaults()
-        let state = AppState(defaults: defaults)
-
-        state.setPanelCount(3)
-        state.setService(.chatGPT, at: 0)
-        state.setService(.gemini, at: 1)
-        state.setService(.grok, at: 2)
-
-        let firstSlotID = state.panelSlots[0].id
-        let middleSlotID = state.panelSlots[1].id
-        let lastSlotID = state.panelSlots[2].id
-        let firstStore = state.webViewStore(for: 0)
-        let middleStore = state.webViewStore(for: 1)
-        let lastStore = state.webViewStore(for: 2)
-
-        state.removePanel(at: 1)
-
-        XCTAssertEqual(state.panelCount, 2)
-        XCTAssertEqual(state.panelSlots[0].id, firstSlotID)
-        XCTAssertEqual(state.panelSlots[1].id, lastSlotID)
-        XCTAssertNotEqual(state.panelSlots[2].id, middleSlotID)
-        XCTAssertTrue(state.webViewStore(for: 0) === firstStore)
-        XCTAssertTrue(state.webViewStore(for: 1) === lastStore)
-        XCTAssertFalse(state.webViewStore(for: 1) === middleStore)
-        XCTAssertEqual(state.service(at: 0).id, AIService.chatGPT.id)
-        XCTAssertEqual(state.service(at: 1).id, AIService.grok.id)
-    }
-
-    @MainActor
-    func testServiceChangeCanPreserveExistingPanelStore() {
-        let defaults = makeDefaults()
-        defaults.set(PanelServiceChangeStorePolicy.preserveSession.rawValue, forKey: "panelServiceChangeStorePolicy")
-        let state = AppState(defaults: defaults)
-
-        let initialStore = state.webViewStore(for: 0)
-        let initialVersion = state.panelStructureVersion
-
-        state.setService(.gemini, at: 0)
-
-        let preservedStore = state.webViewStore(for: 0)
-        XCTAssertTrue(initialStore === preservedStore)
-        XCTAssertEqual(state.panelStructureVersion, initialVersion)
-        XCTAssertEqual(state.panelServiceChangeStorePolicy, .preserveSession)
-        XCTAssertEqual(state.service(at: 0).id, AIService.gemini.id)
-    }
-
-    @MainActor
     func testRemovePanelReindexesServicesResponsesAndAnalysisTarget() {
         let defaults = makeDefaults()
         let state = AppState(defaults: defaults)
@@ -378,6 +363,24 @@ final class AppStateTests: XCTestCase {
         XCTAssertNil(state.collectedResponse(for: 0))
         XCTAssertEqual(state.collectedResponse(for: 1)?.text, "C")
         XCTAssertEqual(state.collectedResponse(for: 2)?.text, "D")
+    }
+
+    @MainActor
+    func testClearCollectedResponsesForSpecificPanelsOnly() {
+        let defaults = makeDefaults()
+        let state = AppState(defaults: defaults)
+
+        state.setPanelCount(3)
+        state.collectPanelResponse(panelIndex: 0, service: .chatGPT, text: "A")
+        state.collectPanelResponse(panelIndex: 1, service: .gemini, text: "B")
+        state.collectPanelResponse(panelIndex: 2, service: .perplexity, text: "C")
+
+        state.clearCollectedResponses(for: [1, 99, -1])
+
+        XCTAssertEqual(state.collectedResponse(for: 0)?.text, "A")
+        XCTAssertNil(state.collectedResponse(for: 1))
+        XCTAssertEqual(state.collectedResponse(for: 2)?.text, "C")
+        XCTAssertEqual(state.visibleCollectedResponseCount, 2)
     }
 
     @MainActor

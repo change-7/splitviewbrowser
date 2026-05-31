@@ -2,6 +2,22 @@ import AppKit
 import Foundation
 import WebKit
 
+enum ExternalNavigationPolicy {
+    static func shouldOpenExternal(
+        canOpenExternally: Bool,
+        navigationType: WKNavigationType
+    ) -> Bool {
+        guard canOpenExternally else { return false }
+
+        switch navigationType {
+        case .linkActivated:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class WebViewStore: NSObject, ObservableObject {
     static let answerCopyCaptureMessageName = "splitViewAnswerCopyCapture"
@@ -87,9 +103,9 @@ final class WebViewStore: NSObject, ObservableObject {
     private var lastComposerSendThrottle: ComposerSendThrottle?
     private weak var cachedEmbeddedScrollView: NSScrollView?
     private var pendingClipboardBaselineChangeCount: Int?
+    private var clipboardFallbackSuppressedUntil: Date?
     private var temporaryChatStateRefreshTask: Task<Void, Never>?
     private var inferredGeminiTemporaryChatActive = false
-    private var isPanelActive = true
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -108,6 +124,7 @@ final class WebViewStore: NSObject, ObservableObject {
             struct Payload: Decodable {
                 let text: String?
                 let host: String?
+                let fallbackClipboard: Bool?
             }
 
             guard let data = payloadJSON.data(using: .utf8),
@@ -119,7 +136,8 @@ final class WebViewStore: NSObject, ObservableObject {
             let trimmed = (payload.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             self.captureCopiedAnswerFromClipboard(
                 host: host.isEmpty ? nil : payload.host,
-                fallbackText: trimmed.isEmpty ? nil : trimmed
+                fallbackText: trimmed.isEmpty ? nil : trimmed,
+                fallbackClipboard: payload.fallbackClipboard ?? trimmed.isEmpty
             )
         }
 
@@ -235,10 +253,17 @@ final class WebViewStore: NSObject, ObservableObject {
         return currentService.trustsHost(host)
     }
 
-    private func publishCopiedAssistantResponse(text: String, source: String) {
+    private func publishCopiedAssistantResponse(
+        text: String,
+        source: String,
+        suppressClipboardFallback: Bool = false
+    ) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         pendingClipboardBaselineChangeCount = nil
+        if suppressClipboardFallback {
+            clipboardFallbackSuppressedUntil = Date().addingTimeInterval(1.5)
+        }
 
         lastCopiedAssistantResponse = AssistantCopiedResponse(
             text: trimmed,
@@ -249,8 +274,19 @@ final class WebViewStore: NSObject, ObservableObject {
 
     private func captureCopiedAnswerFromClipboard(
         host: String?,
-        fallbackText: String?
+        fallbackText: String?,
+        fallbackClipboard: Bool
     ) {
+        let trimmedFallback = fallbackText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !fallbackClipboard, !trimmedFallback.isEmpty {
+            publishCopiedAssistantResponse(
+                text: trimmedFallback,
+                source: "dom-fallback",
+                suppressClipboardFallback: true
+            )
+            return
+        }
+
         if publishCopiedAnswerFromClipboardIfAvailable() {
             return
         }
@@ -266,8 +302,12 @@ final class WebViewStore: NSObject, ObservableObject {
                 }
             }
 
-            if let fallbackText, !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                self.publishCopiedAssistantResponse(text: fallbackText, source: "dom-fallback")
+            if !trimmedFallback.isEmpty {
+                self.publishCopiedAssistantResponse(
+                    text: trimmedFallback,
+                    source: "dom-fallback",
+                    suppressClipboardFallback: true
+                )
                 return
             }
             self.pendingClipboardBaselineChangeCount = nil
@@ -277,6 +317,13 @@ final class WebViewStore: NSObject, ObservableObject {
 
     @discardableResult
     private func publishCopiedAnswerFromClipboardIfAvailable() -> Bool {
+        if let suppressedUntil = clipboardFallbackSuppressedUntil {
+            if suppressedUntil > Date() {
+                return false
+            }
+            clipboardFallbackSuppressedUntil = nil
+        }
+
         if let baseline = pendingClipboardBaselineChangeCount,
            PlatformClipboard.changeCount <= baseline
         {
@@ -322,19 +369,6 @@ final class WebViewStore: NSObject, ObservableObject {
         currentURLString = service.homeURL.absoluteString
         logger.log(.info, category: "WebView", "Load home: \(service.title)")
         webView.load(URLRequest(url: service.homeURL))
-    }
-
-    func setPanelActive(_ isActive: Bool) {
-        guard !hasPreparedForRelease else { return }
-        guard isPanelActive != isActive else { return }
-
-        isPanelActive = isActive
-        if isActive {
-            startTemporaryChatStatePollingIfNeeded()
-        } else {
-            temporaryChatStateRefreshTask?.cancel()
-            temporaryChatStateRefreshTask = nil
-        }
     }
 
     func reload() {
@@ -604,6 +638,7 @@ final class WebViewStore: NSObject, ObservableObject {
                     let message: String?
                     let reason: String?
                     let retry: Bool?
+                    let text: String?
                 }
 
                 do {
@@ -634,6 +669,17 @@ final class WebViewStore: NSObject, ObservableObject {
                         self.pendingClipboardBaselineChangeCount = nil
                         completion(.failure(error))
                         return
+                    }
+
+                    if payload.clicked == true,
+                       let text = payload.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !text.isEmpty
+                    {
+                        self.publishCopiedAssistantResponse(
+                            text: text,
+                            source: "dom-script",
+                            suppressClipboardFallback: true
+                        )
                     }
 
                     completion(
@@ -719,6 +765,9 @@ final class WebViewStore: NSObject, ObservableObject {
                             self.inferredGeminiTemporaryChatActive.toggle()
                             self.temporaryChatState = self.inferredGeminiTemporaryChatActive ? .active : .inactive
                             self.scheduleTemporaryChatStateRefresh()
+                        } else if self.currentService?.id == AIService.chatGPT.id {
+                            self.temporaryChatState = .active
+                            self.scheduleTemporaryChatStateRefresh()
                         } else {
                             self.temporaryChatState = .unknown
                             self.scheduleTemporaryChatStateRefresh()
@@ -799,18 +848,12 @@ final class WebViewStore: NSObject, ObservableObject {
     private func scheduleTemporaryChatStateRefresh() {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 600_000_000)
-            guard let self, !Task.isCancelled, self.isPanelActive else { return }
+            guard let self, !Task.isCancelled else { return }
             self.refreshTemporaryChatStateIfSupported()
         }
     }
 
     private func startTemporaryChatStatePollingIfNeeded() {
-        guard isPanelActive else {
-            temporaryChatStateRefreshTask?.cancel()
-            temporaryChatStateRefreshTask = nil
-            return
-        }
-
         guard let currentService, Self.supportsTemporaryChat(service: currentService), !hasPreparedForRelease else {
             temporaryChatStateRefreshTask?.cancel()
             temporaryChatStateRefreshTask = nil
@@ -1139,7 +1182,7 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
             return
         }
 
-        if canOpenExternally?(url) == true {
+        if shouldOpenExternally(url, navigationAction: navigationAction) {
             openExternal?(url)
             decisionHandler(.cancel)
             return
@@ -1159,11 +1202,18 @@ private final class NavigationProxy: NSObject, WKNavigationDelegate, WKUIDelegat
                 return createInAppPopupWebView?(configuration)
             }
 
-            if canOpenExternally?(url) == true {
+            if shouldOpenExternally(url, navigationAction: navigationAction) {
                 openExternal?(url)
             }
         }
         return nil
+    }
+
+    private func shouldOpenExternally(_ url: URL, navigationAction: WKNavigationAction) -> Bool {
+        ExternalNavigationPolicy.shouldOpenExternal(
+            canOpenExternally: canOpenExternally?(url) == true,
+            navigationType: navigationAction.navigationType
+        )
     }
 
     func webViewDidClose(_ webView: WKWebView) {

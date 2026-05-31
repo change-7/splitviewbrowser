@@ -105,38 +105,10 @@ struct SavedPrompt: Identifiable, Codable, Hashable {
 }
 
 struct CollectedPanelResponse: Identifiable, Hashable {
-    var id: String { panelSlotID }
-    let panelSlotID: String
+    var id: Int { panelIndex }
     let panelIndex: Int
     let text: String
     let capturedAt: Date
-
-    func reindexed(to index: Int) -> CollectedPanelResponse {
-        CollectedPanelResponse(
-            panelSlotID: panelSlotID,
-            panelIndex: index,
-            text: text,
-            capturedAt: capturedAt
-        )
-    }
-}
-
-struct PanelSlot: Identifiable, Codable, Hashable {
-    let id: String
-    var serviceID: String
-
-    init(id: String = UUID().uuidString.lowercased(), serviceID: String) {
-        self.id = id
-        self.serviceID = serviceID
-    }
-}
-
-struct VisiblePanelStore: Identifiable {
-    let slotID: String
-    let index: Int
-    let store: WebViewStore
-
-    var id: String { slotID }
 }
 
 enum WebViewRetentionMode: String, CaseIterable, Codable, Identifiable {
@@ -165,31 +137,6 @@ enum WebViewRetentionMode: String, CaseIterable, Codable, Identifiable {
             return "숨겨진 웹뷰를 일정 시간 보관 후 정리"
         case .keepAlive:
             return "숨겨진 웹뷰도 최대한 유지 (메모리 사용량 증가)"
-        }
-    }
-}
-
-enum PanelServiceChangeStorePolicy: String, CaseIterable, Codable, Identifiable {
-    case recreateStore
-    case preserveSession
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .recreateStore:
-            return "새로 열기"
-        case .preserveSession:
-            return "세션 유지 우선"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .recreateStore:
-            return "서비스 변경 시 패널 웹뷰를 새로 만들어 이전 서비스 DOM/세션 잔여 상태를 제거"
-        case .preserveSession:
-            return "서비스 변경 시 기존 웹뷰를 유지하고 새 홈만 로드해 쿠키/프로세스 재생성을 줄임"
         }
     }
 }
@@ -296,7 +243,6 @@ final class AppState: ObservableObject {
         static let builtInAnalysisPromptTemplatesSeedVersion = "builtInAnalysisPromptTemplatesSeedVersion"
         static let activePresetID = "activePresetID"
         static let webViewRetentionMode = "webViewRetentionMode"
-        static let panelServiceChangeStorePolicy = "panelServiceChangeStorePolicy"
         static let twoPanelCrossSendEnabled = "twoPanelCrossSendEnabled"
         static let addPanelServicePriority = "addPanelServicePriority"
     }
@@ -307,28 +253,26 @@ final class AppState: ObservableObject {
 
     @Published private(set) var panelCount: Int
     @Published private(set) var panelServiceIDs: [String]
-    @Published private(set) var panelSlots: [PanelSlot]
     @Published private(set) var services: [AIService]
     @Published private(set) var addPanelServicePriorityIDs: [String]
     @Published private(set) var presets: [ViewPreset]
     @Published private(set) var activePresetID: String?
     @Published private(set) var savedPrompts: [SavedPrompt]
     @Published private(set) var webViewRetentionMode: WebViewRetentionMode
-    @Published private(set) var panelServiceChangeStorePolicy: PanelServiceChangeStorePolicy
     @Published private(set) var isTwoPanelCrossSendEnabled: Bool
     @Published private(set) var pendingPresetWindowSize: CGSize?
     @Published private(set) var panelStructureVersion: Int
     private(set) var isAppActive: Bool
-    @Published private(set) var collectedResponsesByPanel: [String: CollectedPanelResponse]
+    @Published private(set) var collectedResponsesByPanel: [Int: CollectedPanelResponse]
     @Published private(set) var analysisTargetPanelIndex: Int
     @Published private(set) var selectedAnalysisPromptID: String?
 
     private let defaults: UserDefaults
-    private var webViewStores: [String: WebViewStore] = [:]
+    private var webViewStores: [Int: WebViewStore] = [:]
     private var servicesByID: [String: AIService] = [:]
     private var savedPromptsByID: [String: SavedPrompt] = [:]
-    private var hiddenStoreSince: [String: Date] = [:]
-    private var hiddenStoreReleaseTasks: [String: Task<Void, Never>] = [:]
+    private var hiddenStoreSince: [Int: Date] = [:]
+    private var hiddenStoreReleaseTasks: [Int: Task<Void, Never>] = [:]
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var defaultsWriteTasks: [String: Task<Void, Never>] = [:]
     private let defaultsWriteThrottleNanos: UInt64 = 350_000_000
@@ -347,13 +291,8 @@ final class AppState: ObservableObject {
         )
         let initialPanelCount = Self.clampPanelCount(savedCount)
         let didClampPanelCount = savedCount != initialPanelCount
-        let restoredPanelServiceIDs = Self.normalizedServiceIDs(
-            from: Self.restorePanelServiceIDs(from: defaults),
-            services: restoredServices
-        )
         panelCount = initialPanelCount
-        panelServiceIDs = restoredPanelServiceIDs
-        panelSlots = Self.makePanelSlots(from: restoredPanelServiceIDs)
+        panelServiceIDs = Self.restorePanelServiceIDs(from: defaults)
         services = restoredServices
         addPanelServicePriorityIDs = restoredAddPanelServicePriorityIDs
         presets = Self.restorePresets(from: defaults)
@@ -361,7 +300,6 @@ final class AppState: ObservableObject {
         savedPrompts = Self.restoreSavedPrompts(from: defaults)
         selectedAnalysisPromptID = Self.restoreSelectedAnalysisPromptID(from: defaults)
         webViewRetentionMode = Self.restoreWebViewRetentionMode(from: defaults)
-        panelServiceChangeStorePolicy = Self.restorePanelServiceChangeStorePolicy(from: defaults)
         isTwoPanelCrossSendEnabled = Self.restoreTwoPanelCrossSendEnabled(from: defaults)
         pendingPresetWindowSize = nil
         panelStructureVersion = 0
@@ -409,19 +347,14 @@ final class AppState: ObservableObject {
 
         let previousCount = panelCount
         let appendedServiceID = nextAppendedPanelServiceID()
-        let previousSlot = panelSlots.indices.contains(previousCount) ? panelSlots[previousCount] : nil
-        if panelSlots.indices.contains(previousCount) {
-            panelSlots[previousCount].serviceID = appendedServiceID
-        } else {
-            panelSlots.append(PanelSlot(serviceID: appendedServiceID))
-        }
-        syncPanelServiceIDsFromSlots()
-        if let previousSlot,
-           previousSlot.serviceID != appendedServiceID,
-           let service = servicesByID[appendedServiceID] {
-            applyWebViewStoreServicePolicy(toSlotID: previousSlot.id, service: service)
-        }
         panelCount += 1
+        var updatedServiceIDs = panelServiceIDs
+        if updatedServiceIDs.indices.contains(previousCount) {
+            updatedServiceIDs[previousCount] = appendedServiceID
+        } else {
+            updatedServiceIDs.append(appendedServiceID)
+        }
+        panelServiceIDs = normalizedServiceIDs(from: updatedServiceIDs)
         bumpPanelStructureVersion()
 
         persistPanelCount()
@@ -436,18 +369,14 @@ final class AppState: ObservableObject {
     func removePanel(at index: Int) {
         guard panelCount > Self.minPanels else { return }
         guard index >= 0, index < panelCount else { return }
-        guard panelSlots.indices.contains(index) else { return }
 
         let previousCount = panelCount
-        let removedSlot = panelSlots.remove(at: index)
-        let fallbackID = replacementServiceIDForRemovedPanel()
-        panelSlots.append(PanelSlot(serviceID: fallbackID))
-        syncPanelServiceIDsFromSlots()
         panelCount = max(Self.minPanels, panelCount - 1)
+        panelServiceIDs = reindexedPanelServiceIDs(removing: index)
         bumpPanelStructureVersion()
-        removeCollectedResponse(forSlotID: removedSlot.id)
+        remapCollectedResponses(removingPanelAt: index)
         remapAnalysisTargetIndex(removingPanelAt: index)
-        releaseRemovedPanelStore(forSlotID: removedSlot.id)
+        remapWebViewStores(removingPanelAt: index)
 
         persistPanelCount()
         persistPanelServiceIDs()
@@ -458,26 +387,24 @@ final class AppState: ObservableObject {
     }
 
     func service(at index: Int) -> AIService {
-        guard let slot = panelSlot(at: index) else {
+        guard panelServiceIDs.indices.contains(index) else {
             return AIService.chatGPT
         }
 
-        return servicesByID[slot.serviceID] ?? AIService.chatGPT
+        let selectedID = panelServiceIDs[index]
+        return servicesByID[selectedID] ?? AIService.chatGPT
     }
 
     func setService(_ service: AIService, at index: Int) {
-        guard panelSlots.indices.contains(index) else { return }
+        guard panelServiceIDs.indices.contains(index) else { return }
         guard servicesByID[service.id] != nil else { return }
-        guard panelSlots[index].serviceID != service.id else { return }
+        guard panelServiceIDs[index] != service.id else { return }
 
-        let slotID = panelSlots[index].id
-        let previousServiceID = panelSlots[index].serviceID
-        panelSlots[index].serviceID = service.id
-        syncPanelServiceIDsFromSlots()
-        applyWebViewStoreServicePolicy(toSlotID: slotID, service: service)
+        var updatedServiceIDs = panelServiceIDs
+        updatedServiceIDs[index] = service.id
+        panelServiceIDs = updatedServiceIDs
         persistPanelServiceIDs()
         syncActivePresetToCurrentStateIfNeeded()
-        logger.log(.info, category: "WebView", "Applied service change for panel \(index) (\(previousServiceID) -> \(service.id), policy: \(panelServiceChangeStorePolicy.rawValue))")
     }
 
     func setAnalysisTargetPanelIndex(_ index: Int) {
@@ -502,9 +429,9 @@ final class AppState: ObservableObject {
     }
 
     var visibleCollectedResponses: [CollectedPanelResponse] {
-        visiblePanelSlots.enumerated().compactMap { index, slot in
-            collectedResponsesByPanel[slot.id]?.reindexed(to: index)
-        }
+        collectedResponsesByPanel.values
+            .filter { $0.panelIndex < panelCount }
+            .sorted { lhs, rhs in lhs.panelIndex < rhs.panelIndex }
     }
 
     var visibleCollectedResponseCount: Int {
@@ -526,11 +453,7 @@ final class AppState: ObservableObject {
     }
 
     func collectedResponse(for panelIndex: Int) -> CollectedPanelResponse? {
-        guard let slot = panelSlot(at: panelIndex),
-              let response = collectedResponsesByPanel[slot.id] else {
-            return nil
-        }
-        return response.reindexed(to: panelIndex)
+        collectedResponsesByPanel[panelIndex]
     }
 
     func collectPanelResponse(
@@ -538,13 +461,12 @@ final class AppState: ObservableObject {
         service: AIService,
         text: String
     ) {
-        guard let slot = panelSlot(at: panelIndex) else { return }
+        guard panelIndex >= 0, panelIndex < Self.maxPanels else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         var updated = collectedResponsesByPanel
-        updated[slot.id] = CollectedPanelResponse(
-            panelSlotID: slot.id,
+        updated[panelIndex] = CollectedPanelResponse(
             panelIndex: panelIndex,
             text: trimmed,
             capturedAt: Date()
@@ -554,11 +476,21 @@ final class AppState: ObservableObject {
     }
 
     func clearCollectedResponsesForVisiblePanels() {
-        let visibleSlotIDs = visiblePanelSlotIDs
-        let filtered = collectedResponsesByPanel.filter { !visibleSlotIDs.contains($0.key) }
+        let visibleIndexes = Set(0 ..< panelCount)
+        let filtered = collectedResponsesByPanel.filter { !visibleIndexes.contains($0.key) }
         guard filtered != collectedResponsesByPanel else { return }
         collectedResponsesByPanel = filtered
         logger.log(.info, category: "Collection", "Cleared collected responses for visible panels")
+    }
+
+    func clearCollectedResponses(for panelIndices: [Int]) {
+        let targetIndexes = Set(panelIndices.filter { $0 >= 0 && $0 < Self.maxPanels })
+        guard !targetIndexes.isEmpty else { return }
+
+        let filtered = collectedResponsesByPanel.filter { !targetIndexes.contains($0.key) }
+        guard filtered != collectedResponsesByPanel else { return }
+        collectedResponsesByPanel = filtered
+        logger.log(.info, category: "Collection", "Cleared collected responses for \(targetIndexes.count) panels")
     }
 
     func buildCollectedResponsesAnalysisPrompt() -> String? {
@@ -590,13 +522,6 @@ final class AppState: ObservableObject {
         case .keepAlive:
             break
         }
-    }
-
-    func setPanelServiceChangeStorePolicy(_ policy: PanelServiceChangeStorePolicy) {
-        guard panelServiceChangeStorePolicy != policy else { return }
-        panelServiceChangeStorePolicy = policy
-        persistPanelServiceChangeStorePolicy()
-        logger.log(.info, category: "WebView", "Service change store policy changed to \(policy.rawValue)")
     }
 
     func setTwoPanelCrossSendEnabled(_ isEnabled: Bool) {
@@ -668,9 +593,7 @@ final class AppState: ObservableObject {
         updateActivePresetID(preset.id)
         let normalizedPresetServices = normalizedServiceIDs(from: preset.panelServiceIDs)
         if normalizedPresetServices != panelServiceIDs {
-            let previousSlots = panelSlots
-            replacePanelSlotServiceIDs(normalizedPresetServices)
-            applyWebViewStoreServicePolicy(from: previousSlots, to: panelSlots)
+            panelServiceIDs = normalizedPresetServices
             persistPanelServiceIDs()
         }
         setPanelCount(preset.panelCount)
@@ -904,36 +827,16 @@ final class AppState: ObservableObject {
     }
 
     func webViewStore(for panelIndex: Int) -> WebViewStore {
-        guard let slot = panelSlot(at: panelIndex) else {
-            logger.log(.warning, category: "WebView", "Requested invalid panel store index \(panelIndex)")
-            return WebViewStore()
-        }
-
-        return webViewStore(for: slot, at: panelIndex)
-    }
-
-    private func webViewStore(for slot: PanelSlot, at panelIndex: Int) -> WebViewStore {
-        if let store = webViewStores[slot.id] {
+        if let store = webViewStores[panelIndex] {
             markStoreActive(at: panelIndex)
             return store
         }
 
         let newStore = WebViewStore()
-        webViewStores[slot.id] = newStore
-        newStore.setPanelActive(isAppActive)
+        webViewStores[panelIndex] = newStore
         markStoreActive(at: panelIndex)
         logger.log(.info, category: "WebView", "Created store for panel \(panelIndex)")
         return newStore
-    }
-
-    var visiblePanelStores: [VisiblePanelStore] {
-        visiblePanelSlots.enumerated().map { panelIndex, slot in
-            VisiblePanelStore(
-                slotID: slot.id,
-                index: panelIndex,
-                store: webViewStore(for: slot, at: panelIndex)
-            )
-        }
     }
 
     func addCustomService(title: String, urlString: String) throws {
@@ -1009,34 +912,6 @@ final class AppState: ObservableObject {
         min(max(value, minPanels), maxPanels)
     }
 
-    private static func normalizedServiceIDs(from source: [String], services: [AIService]) -> [String] {
-        var normalized = source.map { AIService.legacyID(from: $0) ?? $0 }
-        if normalized.count > Self.maxPanels {
-            normalized = Array(normalized.prefix(Self.maxPanels))
-        }
-        if normalized.count < Self.maxPanels {
-            normalized += AIService.defaultPanelServiceIDs(count: Self.maxPanels).dropFirst(normalized.count)
-        }
-
-        let servicesByID = Dictionary(uniqueKeysWithValues: services.map { ($0.id, $0) })
-        let fallbackID = services.first?.id ?? Self.fallbackServiceID
-        for index in normalized.indices where servicesByID[normalized[index]] == nil {
-            normalized[index] = fallbackID
-        }
-        return normalized
-    }
-
-    private static func makePanelSlots(from serviceIDs: [String]) -> [PanelSlot] {
-        var normalized = serviceIDs
-        if normalized.count > Self.maxPanels {
-            normalized = Array(normalized.prefix(Self.maxPanels))
-        }
-        if normalized.count < Self.maxPanels {
-            normalized += AIService.defaultPanelServiceIDs(count: Self.maxPanels).dropFirst(normalized.count)
-        }
-        return normalized.map { PanelSlot(serviceID: $0) }
-    }
-
     private static func restorePanelServiceIDs(from defaults: UserDefaults) -> [String] {
         let fallback = AIService.defaultPanelServiceIDs(count: Self.maxPanels)
         guard let stored = defaults.array(forKey: DefaultsKey.panelServices) as? [String] else {
@@ -1104,14 +979,6 @@ final class AppState: ObservableObject {
         return mode
     }
 
-    private static func restorePanelServiceChangeStorePolicy(from defaults: UserDefaults) -> PanelServiceChangeStorePolicy {
-        guard let raw = defaults.string(forKey: DefaultsKey.panelServiceChangeStorePolicy),
-              let policy = PanelServiceChangeStorePolicy(rawValue: raw) else {
-            return .recreateStore
-        }
-        return policy
-    }
-
     private static func restoreTwoPanelCrossSendEnabled(from defaults: UserDefaults) -> Bool {
         defaults.object(forKey: DefaultsKey.twoPanelCrossSendEnabled) as? Bool ?? false
     }
@@ -1150,12 +1017,9 @@ final class AppState: ObservableObject {
     @discardableResult
     private func normalizePanelSelectionsAndPersistIfNeeded(persist: Bool = true) -> Bool {
         let updated = normalizedServiceIDs(from: panelServiceIDs)
-        let currentSlotServiceIDs = panelSlots.map(\.serviceID)
 
-        guard updated != panelServiceIDs || updated != currentSlotServiceIDs else { return false }
-        let previousSlots = panelSlots
-        replacePanelSlotServiceIDs(updated)
-        applyWebViewStoreServicePolicy(from: previousSlots, to: panelSlots)
+        guard updated != panelServiceIDs else { return false }
+        panelServiceIDs = updated
         if persist {
             persistPanelServiceIDs()
         }
@@ -1343,51 +1207,29 @@ final class AppState: ObservableObject {
     }
 
     private func pruneCollectedResponsesToVisiblePanels() {
-        let visibleSlotIDs = visiblePanelSlotIDs
-        let filtered = collectedResponsesByPanel.filter { visibleSlotIDs.contains($0.key) }
+        let visibleIndexes = Set(0 ..< panelCount)
+        let filtered = collectedResponsesByPanel.filter { visibleIndexes.contains($0.key) }
         if filtered != collectedResponsesByPanel {
             collectedResponsesByPanel = filtered
         }
     }
 
     private func normalizedServiceIDs(from source: [String]) -> [String] {
-        Self.normalizedServiceIDs(from: source, services: services)
-    }
-
-    private var visiblePanelSlots: [PanelSlot] {
-        Array(panelSlots.prefix(panelCount))
-    }
-
-    private var visiblePanelSlotIDs: Set<String> {
-        Set(visiblePanelSlots.map(\.id))
-    }
-
-    private func panelSlot(at index: Int) -> PanelSlot? {
-        guard panelSlots.indices.contains(index) else { return nil }
-        return panelSlots[index]
-    }
-
-    private func visiblePanelIndex(forSlotID slotID: String) -> Int? {
-        visiblePanelSlots.firstIndex(where: { $0.id == slotID })
-    }
-
-    private func syncPanelServiceIDsFromSlots() {
-        panelServiceIDs = normalizedServiceIDs(from: panelSlots.map(\.serviceID))
-        for index in panelSlots.indices {
-            panelSlots[index].serviceID = panelServiceIDs[index]
+        var normalized = source.map { AIService.legacyID(from: $0) ?? $0 }
+        if normalized.count > Self.maxPanels {
+            normalized = Array(normalized.prefix(Self.maxPanels))
         }
-    }
-
-    private func replacePanelSlotServiceIDs(_ serviceIDs: [String]) {
-        let normalized = normalizedServiceIDs(from: serviceIDs)
-        if panelSlots.count != Self.maxPanels {
-            panelSlots = Self.makePanelSlots(from: normalized)
-        } else {
-            for index in 0 ..< Self.maxPanels {
-                panelSlots[index].serviceID = normalized[index]
-            }
+        if normalized.count < Self.maxPanels {
+            normalized += AIService.defaultPanelServiceIDs(count: Self.maxPanels).dropFirst(normalized.count)
         }
-        panelServiceIDs = normalized
+
+        let fallbackID = services.first?.id ?? Self.fallbackServiceID
+
+        for index in normalized.indices where servicesByID[normalized[index]] == nil {
+            normalized[index] = fallbackID
+        }
+
+        return normalized
     }
 
     private func nextAutoPresetName() -> String {
@@ -1464,10 +1306,15 @@ final class AppState: ObservableObject {
             }
     }
 
-    private func replacementServiceIDForRemovedPanel() -> String {
+    private func reindexedPanelServiceIDs(removing removedIndex: Int) -> [String] {
+        var updated = panelServiceIDs
+        guard updated.indices.contains(removedIndex) else { return normalizedServiceIDs(from: updated) }
+        updated.remove(at: removedIndex)
+
         let defaults = AIService.defaultPanelServiceIDs(count: Self.maxPanels)
-        let fallbackID = defaults.indices.contains(panelSlots.count) ? defaults[panelSlots.count] : Self.fallbackServiceID
-        return servicesByID[fallbackID] == nil ? (services.first?.id ?? Self.fallbackServiceID) : fallbackID
+        let fallbackID = defaults.indices.contains(updated.count) ? defaults[updated.count] : Self.fallbackServiceID
+        updated.append(fallbackID)
+        return normalizedServiceIDs(from: updated)
     }
 
     private func nextAppendedPanelServiceID() -> String {
@@ -1508,12 +1355,21 @@ final class AppState: ObservableObject {
         return normalized
     }
 
-    private func removeCollectedResponse(forSlotID slotID: String) {
-        guard collectedResponsesByPanel.removeValue(forKey: slotID) != nil else {
-            pruneCollectedResponsesToVisiblePanels()
-            return
+    private func remapCollectedResponses(removingPanelAt removedIndex: Int) {
+        guard !collectedResponsesByPanel.isEmpty else { return }
+
+        var updated: [Int: CollectedPanelResponse] = [:]
+        for response in collectedResponsesByPanel.values {
+            guard response.panelIndex != removedIndex else { continue }
+            let newIndex = response.panelIndex > removedIndex ? response.panelIndex - 1 : response.panelIndex
+            guard newIndex >= 0, newIndex < panelCount else { continue }
+            updated[newIndex] = CollectedPanelResponse(
+                panelIndex: newIndex,
+                text: response.text,
+                capturedAt: response.capturedAt
+            )
         }
-        pruneCollectedResponsesToVisiblePanels()
+        collectedResponsesByPanel = updated
     }
 
     private func remapAnalysisTargetIndex(removingPanelAt removedIndex: Int) {
@@ -1525,42 +1381,27 @@ final class AppState: ObservableObject {
         normalizeAnalysisTargetPanelIndex()
     }
 
-    private func releaseRemovedPanelStore(forSlotID slotID: String) {
-        if let removedStore = webViewStores.removeValue(forKey: slotID) {
+    private func remapWebViewStores(removingPanelAt removedIndex: Int) {
+        if let removedStore = webViewStores.removeValue(forKey: removedIndex) {
             removedStore.prepareForRelease()
         }
-        hiddenStoreSince.removeValue(forKey: slotID)
-        hiddenStoreReleaseTasks.removeValue(forKey: slotID)?.cancel()
-        pruneHiddenStoresToLimit()
-    }
+        hiddenStoreSince.removeValue(forKey: removedIndex)
+        hiddenStoreReleaseTasks.removeValue(forKey: removedIndex)?.cancel()
 
-    private func applyWebViewStoreServicePolicy(from previousSlots: [PanelSlot], to newSlots: [PanelSlot]) {
-        let previousByID = Dictionary(uniqueKeysWithValues: previousSlots.map { ($0.id, $0.serviceID) })
-        for slot in newSlots {
-            guard previousByID[slot.id] != nil,
-                  previousByID[slot.id] != slot.serviceID,
-                  let service = servicesByID[slot.serviceID] else {
-                continue
+        func remapKeys<T>(_ source: [Int: T]) -> [Int: T] {
+            var mapped: [Int: T] = [:]
+            for (key, value) in source {
+                guard key != removedIndex else { continue }
+                let newKey = key > removedIndex ? key - 1 : key
+                mapped[newKey] = value
             }
-            applyWebViewStoreServicePolicy(toSlotID: slot.id, service: service)
+            return mapped
         }
-    }
 
-    private func applyWebViewStoreServicePolicy(toSlotID slotID: String, service: AIService) {
-        switch panelServiceChangeStorePolicy {
-        case .recreateStore:
-            recreateWebViewStore(forSlotID: slotID)
-        case .preserveSession:
-            webViewStores[slotID]?.goHome(service: service)
-        }
-    }
-
-    private func recreateWebViewStore(forSlotID slotID: String) {
-        hiddenStoreSince.removeValue(forKey: slotID)
-        hiddenStoreReleaseTasks.removeValue(forKey: slotID)?.cancel()
-        if let removedStore = webViewStores.removeValue(forKey: slotID) {
-            removedStore.prepareForRelease()
-        }
+        webViewStores = remapKeys(webViewStores)
+        hiddenStoreSince = remapKeys(hiddenStoreSince)
+        hiddenStoreReleaseTasks = remapKeys(hiddenStoreReleaseTasks)
+        pruneHiddenStoresToLimit()
     }
 
     private func reconcileWebViewStores(afterPanelCountChangeFrom oldCount: Int, to newCount: Int) {
@@ -1578,49 +1419,44 @@ final class AppState: ObservableObject {
     }
 
     private func markStoreHidden(at index: Int) {
-        guard let slot = panelSlot(at: index),
-              let store = webViewStores[slot.id] else { return }
-        store.setPanelActive(false)
-        hiddenStoreSince[slot.id] = hiddenStoreSince[slot.id] ?? Date()
+        guard webViewStores[index] != nil else { return }
+        hiddenStoreSince[index] = hiddenStoreSince[index] ?? Date()
         switch webViewRetentionMode {
         case .aggressive:
-            releaseStoreIfHidden(forSlotID: slot.id, force: true)
+            releaseStoreIfHidden(at: index, force: true)
         case .balanced:
-            scheduleHiddenStoreRelease(forSlotID: slot.id)
+            scheduleHiddenStoreRelease(at: index)
         case .keepAlive:
-            hiddenStoreReleaseTasks[slot.id]?.cancel()
-            hiddenStoreReleaseTasks.removeValue(forKey: slot.id)
+            hiddenStoreReleaseTasks[index]?.cancel()
+            hiddenStoreReleaseTasks.removeValue(forKey: index)
         }
     }
 
     private func markStoreActive(at index: Int) {
-        guard let slot = panelSlot(at: index) else { return }
-        webViewStores[slot.id]?.setPanelActive(isAppActive)
-        guard hiddenStoreSince[slot.id] != nil || hiddenStoreReleaseTasks[slot.id] != nil else { return }
-        hiddenStoreSince.removeValue(forKey: slot.id)
-        let pendingTask = hiddenStoreReleaseTasks.removeValue(forKey: slot.id)
+        guard hiddenStoreSince[index] != nil || hiddenStoreReleaseTasks[index] != nil else { return }
+        hiddenStoreSince.removeValue(forKey: index)
+        let pendingTask = hiddenStoreReleaseTasks.removeValue(forKey: index)
         pendingTask?.cancel()
     }
 
-    private func scheduleHiddenStoreRelease(forSlotID slotID: String) {
+    private func scheduleHiddenStoreRelease(at index: Int) {
         guard webViewRetentionMode == .balanced else { return }
-        hiddenStoreReleaseTasks[slotID]?.cancel()
-        hiddenStoreReleaseTasks[slotID] = Task { [weak self] in
+        hiddenStoreReleaseTasks[index]?.cancel()
+        hiddenStoreReleaseTasks[index] = Task { [weak self] in
             let nanos = UInt64(WebViewRetentionPolicy.hiddenTTL * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            self.releaseStoreIfHidden(forSlotID: slotID, force: false)
+            self.releaseStoreIfHidden(at: index, force: false)
         }
     }
 
     private func pruneHiddenStoresToLimit() {
         guard webViewRetentionMode != .keepAlive else { return }
-        let visibleSlotIDs = visiblePanelSlotIDs
-        let hiddenSlotIDs = webViewStores.keys.filter { !visibleSlotIDs.contains($0) }
-        guard hiddenSlotIDs.count > WebViewRetentionPolicy.maxHiddenStores else { return }
+        let hiddenIndexes = webViewStores.keys.filter { $0 >= panelCount }
+        guard hiddenIndexes.count > WebViewRetentionPolicy.maxHiddenStores else { return }
 
-        let sortedSlotIDs = hiddenSlotIDs.sorted { lhs, rhs in
+        let sortedIndexes = hiddenIndexes.sorted { lhs, rhs in
             let lhsDate = hiddenStoreSince[lhs] ?? .distantPast
             let rhsDate = hiddenStoreSince[rhs] ?? .distantPast
             if lhsDate != rhsDate {
@@ -1629,38 +1465,37 @@ final class AppState: ObservableObject {
             return lhs < rhs
         }
 
-        let overflow = hiddenSlotIDs.count - WebViewRetentionPolicy.maxHiddenStores
-        for slotID in sortedSlotIDs.prefix(overflow) {
-            releaseStoreIfHidden(forSlotID: slotID, force: true)
+        let overflow = hiddenIndexes.count - WebViewRetentionPolicy.maxHiddenStores
+        for index in sortedIndexes.prefix(overflow) {
+            releaseStoreIfHidden(at: index, force: true)
         }
     }
 
-    private func releaseStoreIfHidden(forSlotID slotID: String, force: Bool) {
-        guard let store = webViewStores[slotID] else {
-            hiddenStoreSince.removeValue(forKey: slotID)
-            hiddenStoreReleaseTasks[slotID]?.cancel()
-            hiddenStoreReleaseTasks.removeValue(forKey: slotID)
+    private func releaseStoreIfHidden(at index: Int, force: Bool) {
+        guard let store = webViewStores[index] else {
+            hiddenStoreSince.removeValue(forKey: index)
+            hiddenStoreReleaseTasks[index]?.cancel()
+            hiddenStoreReleaseTasks.removeValue(forKey: index)
             return
         }
 
-        if !force, let index = visiblePanelIndex(forSlotID: slotID) {
+        if !force, index < panelCount {
             markStoreActive(at: index)
             return
         }
 
         store.prepareForRelease()
-        webViewStores.removeValue(forKey: slotID)
-        hiddenStoreSince.removeValue(forKey: slotID)
-        hiddenStoreReleaseTasks[slotID]?.cancel()
-        hiddenStoreReleaseTasks.removeValue(forKey: slotID)
-        logger.log(.info, category: "WebView", "Released hidden store for slot \(slotID)")
+        webViewStores.removeValue(forKey: index)
+        hiddenStoreSince.removeValue(forKey: index)
+        hiddenStoreReleaseTasks[index]?.cancel()
+        hiddenStoreReleaseTasks.removeValue(forKey: index)
+        logger.log(.info, category: "WebView", "Released hidden store for panel \(index)")
     }
 
     private func releaseAllHiddenStores() {
-        let visibleSlotIDs = visiblePanelSlotIDs
-        let hiddenSlotIDs = webViewStores.keys.filter { !visibleSlotIDs.contains($0) }
-        for slotID in hiddenSlotIDs {
-            releaseStoreIfHidden(forSlotID: slotID, force: true)
+        let hiddenIndexes = webViewStores.keys.filter { $0 >= panelCount }
+        for index in hiddenIndexes {
+            releaseStoreIfHidden(at: index, force: true)
         }
     }
 
@@ -1697,7 +1532,6 @@ final class AppState: ObservableObject {
 
     private func handleApplicationDidResignActive() {
         isAppActive = false
-        setVisibleStoresActive(false)
         flushPendingDefaultWrites()
         if webViewRetentionMode != .keepAlive {
             releaseAllHiddenStores()
@@ -1707,14 +1541,7 @@ final class AppState: ObservableObject {
 
     private func handleApplicationDidBecomeActive() {
         isAppActive = true
-        setVisibleStoresActive(true)
         logger.log(.info, category: "Lifecycle", "App became active")
-    }
-
-    private func setVisibleStoresActive(_ isActive: Bool) {
-        for slot in visiblePanelSlots {
-            webViewStores[slot.id]?.setPanelActive(isActive)
-        }
     }
 
     private func encodedData<T: Encodable>(_ value: T) -> Data? {
@@ -1764,10 +1591,6 @@ final class AppState: ObservableObject {
         defaults.set(webViewRetentionMode.rawValue, forKey: DefaultsKey.webViewRetentionMode)
     }
 
-    private func writePanelServiceChangeStorePolicyToDefaults() {
-        defaults.set(panelServiceChangeStorePolicy.rawValue, forKey: DefaultsKey.panelServiceChangeStorePolicy)
-    }
-
     private func writeTwoPanelCrossSendEnabledToDefaults() {
         defaults.set(isTwoPanelCrossSendEnabled, forKey: DefaultsKey.twoPanelCrossSendEnabled)
     }
@@ -1785,7 +1608,6 @@ final class AppState: ObservableObject {
         writeCustomServicesToDefaults()
         writeActivePresetIDToDefaults()
         writeWebViewRetentionModeToDefaults()
-        writePanelServiceChangeStorePolicyToDefaults()
         writeTwoPanelCrossSendEnabledToDefaults()
         writeAddPanelServicePriorityToDefaults()
     }
@@ -1854,12 +1676,6 @@ final class AppState: ObservableObject {
     private func persistWebViewRetentionMode() {
         scheduleDefaultsWrite(key: DefaultsKey.webViewRetentionMode) { [weak self] in
             self?.writeWebViewRetentionModeToDefaults()
-        }
-    }
-
-    private func persistPanelServiceChangeStorePolicy() {
-        scheduleDefaultsWrite(key: DefaultsKey.panelServiceChangeStorePolicy) { [weak self] in
-            self?.writePanelServiceChangeStorePolicyToDefaults()
         }
     }
 

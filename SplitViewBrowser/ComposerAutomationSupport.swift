@@ -66,7 +66,6 @@ enum ComposerAutomationCatalog {
                 sendButtonSelectors: [
                     "button[aria-label*='메시지 보내기' i]",
                     "button[aria-label*='Send' i]",
-                    "button[aria-label*='Gemini' i]",
                     "button[type='submit']"
                 ],
                 sendPattern: defaultSendPattern,
