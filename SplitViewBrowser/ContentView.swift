@@ -24,6 +24,38 @@ private struct BulkCopySummary {
     let failedCount: Int
 }
 
+enum AnswerAutoCollectionPhase: Hashable {
+    case waiting
+    case collected
+    case timedOut
+    case failed
+}
+
+struct AnswerAutoCollectionState: Hashable {
+    let phase: AnswerAutoCollectionPhase
+    let detail: String
+    let updatedAt: Date
+}
+
+private enum AnswerAutoCollectionTiming {
+    static let timeout: TimeInterval = 120
+    static let stableInterval: TimeInterval = 3
+    static let fallbackStableInterval: TimeInterval = 9
+    static let pollIntervalNanos: UInt64 = 1_000_000_000
+}
+
+private struct AnswerAutoCollectionTracker {
+    var lastText: String
+    var lastSignature: String
+    var lastChangeAt: Date
+}
+
+private struct AnswerAutoCollectionOutcome {
+    let panelIndex: Int
+    let phase: AnswerAutoCollectionPhase
+    let detail: String
+}
+
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @State private var isPromptRepositoryPresented = false
@@ -32,6 +64,10 @@ struct ContentView: View {
     @State private var quickComposeText = ""
     @State private var quickComposeTargetPanels: Set<Int> = []
     @State private var quickComposeKnownPanelCount = 0
+    @AppStorage("quickComposeAutoCollectAfterSubmit") private var autoCollectAfterQuickCompose = true
+    @State private var answerAutoCollectionStates: [Int: AnswerAutoCollectionState] = [:]
+    @State private var answerAutoCollectionTask: Task<Void, Never>?
+    @State private var answerAutoCollectionRunID = UUID()
     @State private var collectionStatusMessage = ""
     @State private var collectionStatusIsError = false
     @State private var collectionStatusClearTask: Task<Void, Never>?
@@ -100,10 +136,12 @@ struct ContentView: View {
             initializeQuickComposeTargetsIfNeeded()
         }
         .onChange(of: appState.panelCount) { newCount in
+            cancelAutomaticAnswerCollection(clearStates: true)
             normalizeQuickComposeTargets(for: newCount)
         }
         .onDisappear {
             collectionStatusClearTask?.cancel()
+            answerAutoCollectionTask?.cancel()
         }
         .popover(isPresented: $isSettingsPresented, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             SettingsView()
@@ -228,6 +266,7 @@ struct ContentView: View {
                 QuickComposePopoverView(
                     text: $quickComposeText,
                     selectedPanelIndices: $quickComposeTargetPanels,
+                    autoCollectAfterSubmit: $autoCollectAfterQuickCompose,
                     totalCount: appState.panelCount,
                     supportsTemporaryChat: panelSupportsTemporaryChat,
                     storeForPanel: appState.webViewStore(for:),
@@ -359,6 +398,7 @@ struct ContentView: View {
                             availableServices: appState.services,
                             store: appState.webViewStore(for: index),
                             isAnalysisTarget: appState.analysisTargetPanelIndex == index,
+                            autoCollectionState: answerAutoCollectionStates[index],
                             canClose: appState.panelCount > AppState.minPanels,
                             onSendCollectedResponsesToPanel: {
                                 sendCollectedResponses(toPanel: index, updateAnalysisTarget: true)
@@ -800,6 +840,254 @@ struct ContentView: View {
         }
     }
 
+    private func cancelAutomaticAnswerCollection(clearStates: Bool) {
+        answerAutoCollectionRunID = UUID()
+        answerAutoCollectionTask?.cancel()
+        answerAutoCollectionTask = nil
+        if clearStates {
+            answerAutoCollectionStates = [:]
+        }
+    }
+
+    @MainActor
+    private func latestAnswerBaselines(for panelIndices: [Int]) async -> [Int: String] {
+        var baselines: [Int: String] = [:]
+        for panelIndex in panelIndices where panelIndex >= 0 && panelIndex < appState.panelCount {
+            let store = appState.webViewStore(for: panelIndex)
+            let snapshot = await store.snapshotLatestAssistantAnswer()
+            if case let .success(answer) = snapshot {
+                baselines[panelIndex] = answerSignature(answer.text)
+            }
+        }
+        return baselines
+    }
+
+    @MainActor
+    private func startAutomaticAnswerCollection(
+        for panelIndices: [Int],
+        ignoringInitialTexts baselines: [Int: String],
+        sendStartedAt: Date
+    ) {
+        let targets = Array(Set(panelIndices.filter { $0 >= 0 && $0 < appState.panelCount })).sorted()
+        guard !targets.isEmpty else { return }
+
+        cancelAutomaticAnswerCollection(clearStates: false)
+        let runID = UUID()
+        answerAutoCollectionRunID = runID
+        appState.clearCollectedResponses(for: targets)
+
+        for panelIndex in targets {
+            answerAutoCollectionStates[panelIndex] = AnswerAutoCollectionState(
+                phase: .waiting,
+                detail: "패널 \(panelIndex + 1) 새 답변 대기",
+                updatedAt: Date()
+            )
+        }
+        setCollectionStatus("답변 자동 수집 시작: \(targets.count)개 패널", isError: false)
+
+        answerAutoCollectionTask = Task { @MainActor in
+            let outcomes = await runAutomaticAnswerCollection(
+                for: targets,
+                ignoringInitialTexts: baselines,
+                sendStartedAt: sendStartedAt
+            )
+            guard !Task.isCancelled, answerAutoCollectionRunID == runID else { return }
+            answerAutoCollectionTask = nil
+            reportAutomaticAnswerCollection(outcomes: outcomes, targetCount: targets.count)
+        }
+    }
+
+    @MainActor
+    private func runAutomaticAnswerCollection(
+        for targets: [Int],
+        ignoringInitialTexts baselines: [Int: String],
+        sendStartedAt: Date
+    ) async -> [AnswerAutoCollectionOutcome] {
+        var pending = Set(targets)
+        var trackers: [Int: AnswerAutoCollectionTracker] = [:]
+        var outcomes: [AnswerAutoCollectionOutcome] = []
+        let deadline = Date().addingTimeInterval(AnswerAutoCollectionTiming.timeout)
+
+        while !pending.isEmpty, Date() < deadline, !Task.isCancelled {
+            for panelIndex in pending.sorted() {
+                guard panelIndex >= 0, panelIndex < appState.panelCount else {
+                    let outcome = AnswerAutoCollectionOutcome(
+                        panelIndex: panelIndex,
+                        phase: .failed,
+                        detail: "패널 \(panelIndex + 1) 수집 실패: 패널이 닫힘"
+                    )
+                    outcomes.append(outcome)
+                    answerAutoCollectionStates[panelIndex] = AnswerAutoCollectionState(
+                        phase: outcome.phase,
+                        detail: outcome.detail,
+                        updatedAt: Date()
+                    )
+                    pending.remove(panelIndex)
+                    continue
+                }
+
+                let store = appState.webViewStore(for: panelIndex)
+                let snapshotResult = await store.snapshotLatestAssistantAnswer()
+                let now = Date()
+
+                switch snapshotResult {
+                case let .success(snapshot):
+                    let signature = answerSignature(snapshot.text)
+                    if signature.isEmpty {
+                        updateAutomaticAnswerCollectionState(
+                            panelIndex: panelIndex,
+                            detail: "패널 \(panelIndex + 1) 새 답변 대기"
+                        )
+                        continue
+                    }
+
+                    if let baseline = baselines[panelIndex], !baseline.isEmpty, baseline == signature {
+                        updateAutomaticAnswerCollectionState(
+                            panelIndex: panelIndex,
+                            detail: "패널 \(panelIndex + 1) 기존 답변 이후 새 답변 대기"
+                        )
+                        continue
+                    }
+
+                    var tracker = trackers[panelIndex] ?? AnswerAutoCollectionTracker(
+                        lastText: snapshot.text,
+                        lastSignature: signature,
+                        lastChangeAt: now
+                    )
+
+                    if tracker.lastSignature != signature {
+                        tracker.lastText = snapshot.text
+                        tracker.lastSignature = signature
+                        tracker.lastChangeAt = now
+                        trackers[panelIndex] = tracker
+                        updateAutomaticAnswerCollectionState(
+                            panelIndex: panelIndex,
+                            detail: "패널 \(panelIndex + 1) 답변 감지 중 (\(snapshot.text.count)자)"
+                        )
+                        continue
+                    }
+
+                    tracker.lastText = snapshot.text
+                    trackers[panelIndex] = tracker
+                    let stableFor = now.timeIntervalSince(tracker.lastChangeAt)
+                    let isStableEnough = (!snapshot.isGenerating && stableFor >= AnswerAutoCollectionTiming.stableInterval)
+                        || stableFor >= AnswerAutoCollectionTiming.fallbackStableInterval
+
+                    guard isStableEnough else {
+                        let stateText = snapshot.isGenerating ? "생성 중" : "안정화 확인 중"
+                        updateAutomaticAnswerCollectionState(
+                            panelIndex: panelIndex,
+                            detail: "패널 \(panelIndex + 1) \(stateText) (\(snapshot.text.count)자)"
+                        )
+                        continue
+                    }
+
+                    let outcome = collectAutomaticAnswer(
+                        panelIndex: panelIndex,
+                        text: tracker.lastText,
+                        phase: .collected,
+                        detail: "패널 \(panelIndex + 1) 답변 자동 수집 완료"
+                    )
+                    outcomes.append(outcome)
+                    pending.remove(panelIndex)
+
+                case .failure:
+                    if Date().timeIntervalSince(sendStartedAt) > 2 {
+                        updateAutomaticAnswerCollectionState(
+                            panelIndex: panelIndex,
+                            detail: "패널 \(panelIndex + 1) 새 답변 대기"
+                        )
+                    }
+                }
+            }
+
+            guard !pending.isEmpty, !Task.isCancelled else { break }
+            try? await Task.sleep(nanoseconds: AnswerAutoCollectionTiming.pollIntervalNanos)
+        }
+
+        guard !Task.isCancelled else { return outcomes }
+        for panelIndex in pending.sorted() {
+            if let tracker = trackers[panelIndex], !tracker.lastText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let outcome = collectAutomaticAnswer(
+                    panelIndex: panelIndex,
+                    text: tracker.lastText,
+                    phase: .timedOut,
+                    detail: "패널 \(panelIndex + 1) 시간초과, 마지막 내용 수집"
+                )
+                outcomes.append(outcome)
+            } else {
+                let outcome = AnswerAutoCollectionOutcome(
+                    panelIndex: panelIndex,
+                    phase: .timedOut,
+                    detail: "패널 \(panelIndex + 1) 시간초과, 새 답변 없음"
+                )
+                outcomes.append(outcome)
+                answerAutoCollectionStates[panelIndex] = AnswerAutoCollectionState(
+                    phase: .timedOut,
+                    detail: outcome.detail,
+                    updatedAt: Date()
+                )
+            }
+        }
+
+        return outcomes
+    }
+
+    @MainActor
+    private func updateAutomaticAnswerCollectionState(panelIndex: Int, detail: String) {
+        answerAutoCollectionStates[panelIndex] = AnswerAutoCollectionState(
+            phase: .waiting,
+            detail: detail,
+            updatedAt: Date()
+        )
+    }
+
+    @MainActor
+    private func collectAutomaticAnswer(
+        panelIndex: Int,
+        text: String,
+        phase: AnswerAutoCollectionPhase,
+        detail: String
+    ) -> AnswerAutoCollectionOutcome {
+        appState.collectPanelResponse(
+            panelIndex: panelIndex,
+            service: appState.service(at: panelIndex),
+            text: text
+        )
+        answerAutoCollectionStates[panelIndex] = AnswerAutoCollectionState(
+            phase: phase,
+            detail: detail,
+            updatedAt: Date()
+        )
+        return AnswerAutoCollectionOutcome(
+            panelIndex: panelIndex,
+            phase: phase,
+            detail: detail
+        )
+    }
+
+    private func reportAutomaticAnswerCollection(outcomes: [AnswerAutoCollectionOutcome], targetCount: Int) {
+        let collectedCount = outcomes.filter { $0.phase == .collected }.count
+        let timedOutCount = outcomes.filter { $0.phase == .timedOut }.count
+        let failedCount = outcomes.filter { $0.phase == .failed }.count
+
+        if collectedCount == targetCount {
+            setCollectionStatus("답변 자동 수집 완료: \(collectedCount)/\(targetCount) 패널", isError: false)
+            return
+        }
+
+        setCollectionStatus(
+            "답변 자동 수집 종료: 완료 \(collectedCount), 시간초과 \(timedOutCount), 실패 \(failedCount)",
+            isError: true
+        )
+    }
+
+    private func answerSignature(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var selectedQuickComposePanelIndices: [Int] {
         quickComposeTargetPanels
             .filter { $0 >= 0 && $0 < appState.panelCount }
@@ -861,10 +1149,21 @@ struct ContentView: View {
             return
         }
 
-        Task {
+        Task { @MainActor in
+            let sendStartedAt = Date()
+            let baselineTexts: [Int: String]
+            if autoCollectAfterQuickCompose {
+                cancelAutomaticAnswerCollection(clearStates: true)
+                baselineTexts = await latestAnswerBaselines(for: targets)
+            } else {
+                cancelAutomaticAnswerCollection(clearStates: true)
+                baselineTexts = [:]
+            }
+
             var submittedCount = 0
             var insertedOnlyCount = 0
             var failedCount = 0
+            var submittedPanelIndices: [Int] = []
 
             for panelIndex in targets {
                 let store = appState.webViewStore(for: panelIndex)
@@ -888,6 +1187,7 @@ struct ContentView: View {
                     case let .success(sendResult):
                         if sendResult.submitted {
                             submittedCount += 1
+                            submittedPanelIndices.append(panelIndex)
                         } else {
                             insertedOnlyCount += 1
                         }
@@ -911,6 +1211,14 @@ struct ContentView: View {
                 setCollectionStatus(
                     "일부 실패: 성공 전송 \(submittedCount), 입력만 \(insertedOnlyCount), 실패 \(failedCount)",
                     isError: true
+                )
+            }
+
+            if autoCollectAfterQuickCompose, !submittedPanelIndices.isEmpty {
+                startAutomaticAnswerCollection(
+                    for: submittedPanelIndices,
+                    ignoringInitialTexts: baselineTexts,
+                    sendStartedAt: sendStartedAt
                 )
             }
         }

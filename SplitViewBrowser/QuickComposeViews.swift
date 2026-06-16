@@ -4,6 +4,7 @@ import SwiftUI
 struct QuickComposePopoverView: View {
     @Binding var text: String
     @Binding var selectedPanelIndices: Set<Int>
+    @Binding var autoCollectAfterSubmit: Bool
     let totalCount: Int
     let supportsTemporaryChat: (Int) -> Bool
     let storeForPanel: (Int) -> WebViewStore
@@ -103,23 +104,31 @@ struct QuickComposePopoverView: View {
                 }
             }
 
-            HStack {
-                Text("Enter: 줄바꿈 · Shift+Enter: 선택 패널에 동시 입력+전송")
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("전송 후 답변 자동 수집", isOn: $autoCollectAfterSubmit)
+                    .toggleStyle(.checkbox)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .help("선택 패널에 전송한 뒤 각 패널의 새 답변을 감시하고 자동으로 수집")
+                    .accessibilityLabel("전송 후 답변 자동 수집")
 
-                Spacer(minLength: 8)
+                HStack {
+                    Text("Enter: 줄바꿈 · Shift+Enter: 선택 패널에 동시 입력+전송")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
-                Text("대상 \(selectedCount)/\(totalCount)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(selectedCount > 0 ? Color.accentColor : .secondary)
+                    Spacer(minLength: 8)
 
-                Button("전송") {
-                    onSubmit()
+                    Text("대상 \(selectedCount)/\(totalCount)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(selectedCount > 0 ? Color.accentColor : .secondary)
+
+                    Button("전송") {
+                        onSubmit()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedCount == 0)
+                    .accessibilityLabel("동시 입력 전송")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedCount == 0)
-                .accessibilityLabel("동시 입력 전송")
             }
         }
         .padding(14)

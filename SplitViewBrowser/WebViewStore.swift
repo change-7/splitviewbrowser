@@ -54,6 +54,12 @@ final class WebViewStore: NSObject, ObservableObject {
         let message: String
     }
 
+    struct AssistantAnswerSnapshot: Hashable {
+        let text: String
+        let isGenerating: Bool
+        let capturedAt: Date
+    }
+
     struct TemporaryChatClickResult: Hashable {
         let clicked: Bool
         let message: String
@@ -571,6 +577,74 @@ final class WebViewStore: NSObject, ObservableObject {
         await withCheckedContinuation { continuation in
             triggerAssistantAnswerCopy(targetOffset: targetOffset) { result in
                 continuation.resume(returning: result)
+            }
+        }
+    }
+
+    func snapshotLatestAssistantAnswer() async -> Result<AssistantAnswerSnapshot, Error> {
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(Self.latestAssistantAnswerSnapshotScriptSource) { [weak self] value, error in
+                Task { @MainActor in
+                    if let error {
+                        self?.logger.log(.warning, category: "Collection", "Failed to execute answer snapshot script: \(error.localizedDescription)")
+                        continuation.resume(returning: .failure(error))
+                        return
+                    }
+
+                    guard let resultJSON = value as? String,
+                          let data = resultJSON.data(using: .utf8) else {
+                        let error = NSError(
+                            domain: "SplitViewBrowser.WebViewStore",
+                            code: 1120,
+                            userInfo: [NSLocalizedDescriptionKey: "최신 답변 스냅샷 결과를 읽을 수 없습니다."]
+                        )
+                        continuation.resume(returning: .failure(error))
+                        return
+                    }
+
+                    struct Payload: Decodable {
+                        let ok: Bool
+                        let text: String?
+                        let isGenerating: Bool?
+                        let reason: String?
+                    }
+
+                    do {
+                        let payload = try JSONDecoder().decode(Payload.self, from: data)
+                        guard payload.ok else {
+                            let error = NSError(
+                                domain: "SplitViewBrowser.WebViewStore",
+                                code: 1121,
+                                userInfo: [NSLocalizedDescriptionKey: payload.reason ?? "최신 답변을 찾지 못했습니다."]
+                            )
+                            continuation.resume(returning: .failure(error))
+                            return
+                        }
+
+                        let trimmed = payload.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        guard !trimmed.isEmpty else {
+                            let error = NSError(
+                                domain: "SplitViewBrowser.WebViewStore",
+                                code: 1122,
+                                userInfo: [NSLocalizedDescriptionKey: "최신 답변 텍스트가 비어 있습니다."]
+                            )
+                            continuation.resume(returning: .failure(error))
+                            return
+                        }
+
+                        continuation.resume(
+                            returning: .success(
+                                AssistantAnswerSnapshot(
+                                    text: trimmed,
+                                    isGenerating: payload.isGenerating ?? false,
+                                    capturedAt: Date()
+                                )
+                            )
+                        )
+                    } catch {
+                        continuation.resume(returning: .failure(error))
+                    }
+                }
             }
         }
     }

@@ -8,6 +8,7 @@ struct WebPanelView: View {
     let availableServices: [AIService]
     @ObservedObject var store: WebViewStore
     let isAnalysisTarget: Bool
+    let autoCollectionState: AnswerAutoCollectionState?
     let canClose: Bool
     let onSendCollectedResponsesToPanel: () -> Void
     let onTriggerPageCopy: () -> Void
@@ -98,6 +99,10 @@ struct WebPanelView: View {
             }
             .help("이 패널의 최신 답변 복사 버튼 클릭")
             .accessibilityLabel("이 패널 최신 답변 복사")
+
+            if let autoCollectionState {
+                AnswerAutoCollectionStatusView(state: autoCollectionState)
+            }
 
             if supportsTemporaryChat {
                 Button(action: onTriggerTemporaryChat) {
@@ -274,5 +279,31 @@ struct WebPanelView: View {
             service: service,
             text: copied.text
         )
+    }
+}
+
+private struct AnswerAutoCollectionStatusView: View {
+    let state: AnswerAutoCollectionState
+
+    var body: some View {
+        Group {
+            switch state.phase {
+            case .waiting:
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 16, height: 16)
+            case .collected:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.green)
+            case .timedOut:
+                Image(systemName: "clock.fill")
+                    .foregroundStyle(Color.orange)
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.red)
+            }
+        }
+        .help(state.detail)
+        .accessibilityLabel(state.detail)
     }
 }

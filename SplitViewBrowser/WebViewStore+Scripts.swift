@@ -210,6 +210,195 @@ extension WebViewStore {
         """
     }
 
+    static var latestAssistantAnswerSnapshotScriptSource: String {
+        """
+        (() => {
+          try {
+            const host = (location.hostname || "").toLowerCase();
+
+            const normalizeExtractedText = (value) => String(value || "")
+              .replace(/\\u00A0/g, " ")
+              .replace(/\\r/g, "")
+              .replace(/[ \\t]+\\n/g, "\\n")
+              .replace(/\\n{3,}/g, "\\n\\n")
+              .trim();
+
+            const sanitizeAnswerText = (value) => normalizeExtractedText(value)
+              .split("\\n")
+              .map((line) => line.trim())
+              .filter((line) => line && !/^(copy|copy response|복사|답변 복사|share|공유|regenerate|다시 생성|retry|다시 시도|like|dislike|좋아요|싫어요|read aloud|소리내어 읽기|export|내보내기)$/i.test(line))
+              .join("\\n")
+              .replace(/\\n{3,}/g, "\\n\\n")
+              .trim();
+
+            const queryAllSafe = (root, selector) => {
+              try {
+                return Array.from(root.querySelectorAll(selector));
+              } catch (_) {
+                return [];
+              }
+            };
+
+            const uniqueElements = (elements) => {
+              const seen = new Set();
+              const result = [];
+              for (const element of elements) {
+                if (!(element instanceof Element)) continue;
+                if (seen.has(element)) continue;
+                seen.add(element);
+                result.push(element);
+              }
+              return result;
+            };
+
+            const isVisible = (element) => {
+              if (!(element instanceof Element)) return false;
+              const style = window.getComputedStyle(element);
+              if (style && (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0)) {
+                return false;
+              }
+              const rect = element.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            };
+
+            const textFromElement = (element) => {
+              if (!(element instanceof Element)) return "";
+              const direct = sanitizeAnswerText(element.innerText || element.textContent || "");
+              if (direct) return direct;
+
+              try {
+                if (element.shadowRoot) {
+                  const shadowText = sanitizeAnswerText(element.shadowRoot.textContent || "");
+                  if (shadowText) return shadowText;
+
+                  const nested = element.shadowRoot.querySelector(
+                    "message-content, model-response, [data-response-id], article, .markdown, .prose"
+                  );
+                  if (nested instanceof Element) {
+                    return sanitizeAnswerText(nested.innerText || nested.textContent || "");
+                  }
+                }
+              } catch (_) {}
+
+              return "";
+            };
+
+            const candidateSelectors = (() => {
+              if (host.includes("openai.com") || host.includes("chatgpt.com")) {
+                return ["[data-message-author-role='assistant']", "main article", "article"];
+              }
+              if (host.includes("gemini.google.com")) {
+                return ["model-response", "message-content", "[data-response-id]", "response-container", "article"];
+              }
+              if (host.includes("claude.ai")) {
+                return [
+                  "[data-testid*='assistant']",
+                  "[data-testid*='message']",
+                  "[data-is-streaming]",
+                  ".font-claude-message",
+                  "main article",
+                  "article"
+                ];
+              }
+              if (host.includes("perplexity.ai")) {
+                return ["main article", "main .prose", "article", "div.prose"];
+              }
+              if (host.includes("grok.com")) {
+                return ["article", "main section", "[data-testid*='assistant']", "[data-testid*='response']", "[data-testid*='message']"];
+              }
+              return ["[data-message-author-role='assistant']", "[data-testid*='assistant']", "main article", "article", "main section", ".prose", ".markdown"];
+            })();
+
+            const isComposerOrUserInput = (element) => {
+              if (!(element instanceof Element)) return true;
+              if (element.matches("textarea,input,[role='textbox'],[contenteditable='true']")) return true;
+              const editableAncestor = element.closest("textarea,input,[role='textbox'],[contenteditable='true']");
+              return Boolean(editableAncestor);
+            };
+
+            const scoreCandidate = (element, text) => {
+              const rect = element.getBoundingClientRect();
+              let score = rect.top + rect.bottom * 0.01;
+              score += Math.min(text.length, 4000) * 0.02;
+
+              const descriptor = [
+                element.getAttribute("data-message-author-role") || "",
+                element.getAttribute("data-testid") || "",
+                element.getAttribute("class") || "",
+                element.tagName || ""
+              ].join(" ").toLowerCase();
+
+              if (descriptor.includes("assistant")) score += 1600;
+              if (descriptor.includes("model-response")) score += 1500;
+              if (descriptor.includes("response")) score += 600;
+              if (element.matches("article")) score += 120;
+              return score;
+            };
+
+            const candidates = uniqueElements(
+              candidateSelectors.flatMap((selector) => queryAllSafe(document, selector))
+            )
+              .filter((element) => isVisible(element) && !isComposerOrUserInput(element))
+              .map((element) => ({ element, text: textFromElement(element) }))
+              .filter((entry) => entry.text.length >= 4)
+              .map((entry) => ({
+                text: entry.text,
+                score: scoreCandidate(entry.element, entry.text)
+              }))
+              .sort((a, b) => b.score - a.score);
+
+            if (!candidates.length) {
+              return JSON.stringify({ ok: false, reason: "답변 후보를 찾지 못했습니다." });
+            }
+
+            const normalizeButtonText = (value) => String(value || "")
+              .replace(/\\s+/g, " ")
+              .trim()
+              .toLowerCase();
+
+            const generatingSelectors = [
+              "button[data-testid*='stop' i]",
+              "button[aria-label*='stop' i]",
+              "button[aria-label*='cancel' i]",
+              "button[aria-label*='중지' i]",
+              "button[aria-label*='멈춤' i]",
+              "button[aria-label*='정지' i]",
+              "button[title*='stop' i]",
+              "button[title*='중지' i]",
+              "[data-testid*='stop' i]",
+              "[aria-label*='stop generating' i]",
+              "[aria-label*='응답 중지' i]",
+              "[aria-label*='생성 중지' i]"
+            ];
+
+            const generatingButtons = uniqueElements(
+              generatingSelectors.flatMap((selector) => queryAllSafe(document, selector))
+            ).filter(isVisible);
+
+            const isGenerating = generatingButtons.some((button) => {
+              const descriptor = normalizeButtonText([
+                button.getAttribute("aria-label") || "",
+                button.getAttribute("title") || "",
+                button.getAttribute("data-testid") || "",
+                button.textContent || ""
+              ].join(" "));
+              return /(stop|cancel|중지|멈춤|정지|응답 중지|생성 중지)/.test(descriptor);
+            });
+
+            return JSON.stringify({
+              ok: true,
+              text: candidates[0].text,
+              isGenerating,
+              length: candidates[0].text.length
+            });
+          } catch (error) {
+            const reason = error && error.message ? String(error.message) : "최신 답변 스냅샷 스크립트 오류";
+            return JSON.stringify({ ok: false, reason });
+          }
+        })();
+        """
+    }
+
     static func composerPrepareScript(payloadJSON: String) -> String {
         """
         (() => {
