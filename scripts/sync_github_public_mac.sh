@@ -18,7 +18,6 @@ INCLUDE_ITEMS=(
   "scripts"
   "README.md"
   "project.yml"
-  "SplitViewBrowser-Installer.dmg"
 )
 
 echo "[sync] Source: $ROOT_DIR"
@@ -70,6 +69,7 @@ xcuserdata/
 build/
 DerivedData/
 *.app/
+/SplitViewBrowser-Installer.dmg
 
 # Swift Package Manager
 .build/

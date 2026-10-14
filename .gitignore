@@ -24,3 +24,6 @@ mobile/
 SplitViewBrowser_GitHub_Copy/
 VERSION_HISTORY.md
 GitHub_Public_Mac/
+
+# Distributable binaries belong in GitHub Releases
+/SplitViewBrowser-Installer.dmg

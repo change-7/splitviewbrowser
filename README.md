@@ -53,3 +53,7 @@ open -na ./SplitViewBrowser.app
 ## 참고
 - 일부 사이트의 로그인, 캡차, 보안 정책은 `WKWebView` 환경에서 다르게 동작할 수 있습니다.
 - 답변 수집/자동 전송은 각 사이트의 DOM 구조에 의존하므로, 사이트 UI가 바뀌면 조정이 필요할 수 있습니다.
+
+## GitHub Releases
+
+기존에 Git 저장소에 직접 포함됐던 설치용 DMG는 [Releases](https://github.com/change-7/splitviewbrowser/releases)에서 받을 수 있습니다. 기존 파일은 `tracked-binaries-2026-10-15` 릴리스에 보관했으며, 새 빌드는 `scripts/build_release_app.sh`와 `scripts/create_dmg.sh`로 생성합니다. 설치용 DMG는 소스 저장소에 커밋하지 않습니다.
